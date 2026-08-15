@@ -1,0 +1,23 @@
+# DeployLens backend runtime dependencies (Python 3.12)
+
+# --- Web framework ---
+fastapi
+uvicorn[standard]
+
+# --- Config & validation ---
+pydantic
+pydantic-settings
+
+# --- Database ---
+SQLAlchemy
+alembic
+psycopg[binary]
+
+# --- Auth & security ---
+# PyJWT signs the session cookie; cryptography encrypts the stored GitHub
+# access token so a database dump alone cannot act on a user's behalf.
+PyJWT
+cryptography
+
+# --- HTTP client (GitHub API, health probes) ---
+httpx

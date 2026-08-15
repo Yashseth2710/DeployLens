@@ -1,0 +1,12 @@
+-r requirements.txt
+
+# --- Tests ---
+pytest
+pytest-asyncio
+pytest-cov
+# Intercepts httpx so GitHub API and health-probe tests never touch the network.
+respx
+
+# --- Lint & types ---
+ruff
+mypy
