@@ -47,10 +47,10 @@ jobs:
         run: pip install -r requirements.lock.txt
 
       - name: Lint
-        run: ruff check app migrations
+        run: ruff check app migrations tests
 
       - name: Check formatting
-        run: ruff format --check app migrations
+        run: ruff format --check app migrations tests
 
       - name: Type check
         run: mypy app
@@ -64,6 +64,16 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/deploylens
         run: alembic check
+
+      # Throwaway secrets: the suite needs a valid Fernet key and a signing key, but
+      # never talks to GitHub — respx intercepts those calls.
+      - name: Test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/deploylens
+          SESSION_SECRET: ci-session-secret
+          TOKEN_ENCRYPTION_KEY: Spbw1tFaTMoOEPbHSYTbiIbXcujUBbayNxTTOtASKjY=
+          APP_URL: http://localhost:3000
+        run: pytest
 
   frontend:
     runs-on: ubuntu-latest
