@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from app.api.cookies import OAUTH_STATE_COOKIE, SESSION_COOKIE
 from app.core.security import decrypt_token, issue_session
 from app.models.user import User
-from app.services.github_oauth import ACCESS_TOKEN_URL, API_URL
+from app.services.github_api import API_URL
+from app.services.github_oauth import ACCESS_TOKEN_URL
 
 ACCOUNT = {
     "id": 4815162342,
