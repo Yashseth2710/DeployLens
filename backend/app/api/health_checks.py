@@ -1,12 +1,18 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession
-from app.models.health import HealthCheck
+from app.models.health import HealthCheck, HealthResult
 from app.models.repository import Repository
-from app.schemas.health import HealthCheckCreate, HealthCheckOut, HealthCheckUpdate
+from app.schemas.health import (
+    HealthCheckCreate,
+    HealthCheckOut,
+    HealthCheckUpdate,
+    HealthResultOut,
+)
 
 router = APIRouter(prefix="/api/health-checks", tags=["health"])
 
@@ -55,6 +61,26 @@ def create_check(payload: HealthCheckCreate, user: CurrentUser, db: DbSession) -
     db.commit()
     db.refresh(check)
     return check
+
+
+@router.get("/{check_id}/results", response_model=list[HealthResultOut])
+def list_results(
+    check_id: UUID,
+    user: CurrentUser,
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> list[HealthResult]:
+    if _owned(db, user.id, check_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such health check")
+
+    return list(
+        db.scalars(
+            select(HealthResult)
+            .where(HealthResult.health_check_id == check_id)
+            .order_by(HealthResult.checked_at.desc())
+            .limit(limit)
+        )
+    )
 
 
 @router.patch("/{check_id}", response_model=HealthCheckOut)
