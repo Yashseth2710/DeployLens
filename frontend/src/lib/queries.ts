@@ -18,7 +18,7 @@ import type {
 } from "@/lib/types";
 
 // The first ask happens before the server has said how often to come back.
-const IDLE_POLL_MS = 45_000;
+const FIRST_POLL_MS = 10_000;
 
 export const keys = {
   session: ["session"] as const,
@@ -112,8 +112,8 @@ export function useSignOut() {
 
 /**
  * The loop that makes the product current. Asking for the board is what triggers
- * the pull, so nobody has to press anything; the server decides how long to wait
- * before the next ask, because only it knows whether something is running.
+ * the pull, so there is nothing to press; the server sets the interval, because it
+ * is the same number as the throttle it applies and the two must not drift.
  *
  * Everything downstream is invalidated whenever a pull actually brought
  * something back, so the dashboard's numbers move with the board rather than
@@ -121,7 +121,7 @@ export function useSignOut() {
  */
 export function useActivityBoard(enabled: boolean) {
   const client = useQueryClient();
-  const [poll, setPoll] = useState(IDLE_POLL_MS);
+  const [poll, setPoll] = useState(FIRST_POLL_MS);
 
   const board = useQuery({
     queryKey: keys.activity,
@@ -161,25 +161,6 @@ export function useLiveCount(): number {
     enabled: false,
   });
   return data?.live_count ?? 0;
-}
-
-/**
- * The manual path, kept for recovery rather than routine use: it skips the
- * staleness throttle and pulls every repository now.
- */
-export function useSyncNow() {
-  const client = useQueryClient();
-
-  return useMutation({
-    mutationFn: () => api<ActivityBoard>("/api/activity?force=true", { method: "POST" }),
-    onSuccess: (board) => {
-      client.setQueryData(keys.activity, board);
-      void client.invalidateQueries({ queryKey: ["analytics"] });
-      void client.invalidateQueries({ queryKey: ["runs"] });
-      void client.invalidateQueries({ queryKey: ["deployments"] });
-      void client.invalidateQueries({ queryKey: ["pull-requests"] });
-    },
-  });
 }
 
 export function useOverview(days: number, enabled: boolean) {

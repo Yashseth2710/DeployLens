@@ -94,21 +94,6 @@ def test_board_ignores_another_users_repositories(db: Session, user: User, repos
     assert activity.board(db, user.id) == []
 
 
-def test_a_repository_with_a_run_in_flight_is_checked_far_more_often(
-    db: Session, repository: Repository
-):
-    """The whole point of the throttle: watch closely while something is happening,
-    and leave a quiet repository alone."""
-    repository.last_synced_at = NOW - timedelta(seconds=40)
-    db.flush()
-
-    assert autosync._is_stale(db, repository, autosync.IDLE_MAX_AGE) is False
-
-    add_run(db, repository, github_run_id=7201, status="in_progress", conclusion=None)
-
-    assert autosync._is_stale(db, repository, autosync.IDLE_MAX_AGE) is True
-
-
 def test_refresh_skips_repositories_that_were_just_read(
     db: Session, user: User, repository: Repository, monkeypatch: pytest.MonkeyPatch
 ):
@@ -122,19 +107,19 @@ def test_refresh_skips_repositories_that_were_just_read(
     assert report.synced == 0
 
 
-def test_force_ignores_the_throttle(
+def test_a_repository_read_longer_ago_than_the_window_is_pulled_again(
     db: Session, user: User, repository: Repository, monkeypatch: pytest.MonkeyPatch
 ):
-    """What "Sync now" is for: somebody wants to be sure, not to wait for a timer."""
-    repository.last_synced_at = NOW
+    """The throttle is what an open page feels as its refresh rate, so a repository
+    older than it must be collected without anybody asking."""
+    repository.last_synced_at = NOW - autosync.WATCHING_MAX_AGE - timedelta(seconds=1)
     db.flush()
     monkeypatch.setattr(autosync.workflow_sync, "sync_repository", _synced_nothing, raising=True)
 
-    report = autosync.refresh_user(db, user, "token", force=True)
+    report = autosync.refresh_user(db, user, "token")
 
     assert report.synced == 1
     assert report.skipped == 0
-    assert repository.last_synced_at is not None
 
 
 def test_one_unreadable_repository_does_not_stop_the_rest(
@@ -169,7 +154,7 @@ def test_one_unreadable_repository_does_not_stop_the_rest(
     assert report.synced == 1
 
 
-def test_activity_endpoint_reports_a_faster_poll_while_something_runs(
+def test_activity_endpoint_reports_the_live_board_and_its_poll_rate(
     client: TestClient,
     db: Session,
     signed_in: User,
@@ -182,23 +167,8 @@ def test_activity_endpoint_reports_a_faster_poll_while_something_runs(
     body = client.post("/api/activity").json()
 
     assert body["live_count"] == 1
-    assert body["poll_seconds"] < 30
+    assert body["poll_seconds"] == 10
     assert body["items"][0]["live"] is True
-
-
-def test_activity_endpoint_slows_down_when_nothing_is_running(
-    client: TestClient,
-    db: Session,
-    signed_in: User,
-    repository: Repository,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    monkeypatch.setattr(autosync.workflow_sync, "sync_repository", _synced_nothing, raising=True)
-
-    body = client.post("/api/activity").json()
-
-    assert body["live_count"] == 0
-    assert body["poll_seconds"] >= 30
 
 
 def test_a_provider_deployment_still_building_reads_as_live(
