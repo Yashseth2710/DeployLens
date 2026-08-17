@@ -66,3 +66,22 @@ class HealthCheckOut(BaseModel):
     expected_status: int
     enabled: bool
     created_at: datetime
+
+
+class HealthResultOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    health_check_id: UUID
+    status: str
+    status_code: int | None
+    response_time_ms: int | None
+    error_message: str | None
+    checked_at: datetime
+
+
+class ProbeRunSummary(BaseModel):
+    checked: int
+    up: int
+    down: int
+    pruned: int

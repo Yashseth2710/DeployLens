@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import auth, deployments, health_checks, repositories, webhooks
+from app.api import auth, cron, deployments, health_checks, repositories, webhooks
 from app.api.errors import install_github_error_handlers
 
 app = FastAPI(title="DeployLens API", docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -11,6 +11,7 @@ app.include_router(repositories.router)
 app.include_router(deployments.router)
 app.include_router(health_checks.router)
 app.include_router(webhooks.router)
+app.include_router(cron.router)
 
 
 @app.get("/api/health")
