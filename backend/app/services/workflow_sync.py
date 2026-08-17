@@ -20,6 +20,11 @@ DEPLOY_WORKFLOW = re.compile(r"deploy|release|publish|ship|promote", re.IGNORECA
 FIRST_SYNC_PAGES = 3
 REFRESH_PAGES = 1
 
+# A refresh only has to reach whatever started since the last pass, which is seconds ago.
+# Asking for a hundred runs to find the two that are new costs two and a half seconds of
+# payload; thirty covers a burst of parallel jobs with room to spare.
+REFRESH_PER_PAGE = 30
+
 
 @dataclass(frozen=True)
 class SyncResult:
@@ -27,6 +32,53 @@ class SyncResult:
     runs_added: int
     deployments_added: int
     provider_deployments: int
+
+
+@dataclass(frozen=True)
+class RunPayload:
+    """What GitHub had to say about a repository, before any of it is written down.
+
+    Fetching and recording are separate steps because fetching is network latency that
+    parallelises and recording is a database session that must not be shared between
+    threads.
+    """
+
+    runs: list[GitHubWorkflowRun]
+    deployments: list[GitHubDeployment]
+
+
+def plan(db: Session, repository: Repository) -> tuple[int, int, frozenset[int]]:
+    """The database reads a fetch needs, taken before any thread is started."""
+    known = db.scalar(
+        select(WorkflowRun.id).where(WorkflowRun.repository_id == repository.id).limit(1)
+    )
+    pages = REFRESH_PAGES if known else FIRST_SYNC_PAGES
+    per_page = REFRESH_PER_PAGE if known else github_api.PER_PAGE
+    return pages, per_page, _settled_deployment_ids(db, repository)
+
+
+def fetch(
+    access_token: str,
+    full_name: str,
+    pages: int,
+    per_page: int,
+    settled_ids: frozenset[int],
+) -> RunPayload:
+    return RunPayload(
+        runs=github_api.list_workflow_runs(access_token, full_name, pages=pages, per_page=per_page),
+        deployments=github_api.list_deployments(access_token, full_name, settled_ids=settled_ids),
+    )
+
+
+def record(db: Session, repository: Repository, payload: RunPayload) -> SyncResult:
+    result = record_runs(db, repository, payload.runs)
+    provider = record_provider_deployments(db, repository, payload.deployments)
+    return SyncResult(
+        runs_seen=result.runs_seen,
+        runs_added=result.runs_added,
+        deployments_added=result.deployments_added,
+        provider_deployments=provider,
+    )
 
 
 def sync_repository(db: Session, repository: Repository, access_token: str) -> SyncResult:
@@ -37,7 +89,12 @@ def sync_repository(db: Session, repository: Repository, access_token: str) -> S
     )
     pages = REFRESH_PAGES if known else FIRST_SYNC_PAGES
 
-    runs = github_api.list_workflow_runs(access_token, repository.full_name, pages=pages)
+    runs = github_api.list_workflow_runs(
+        access_token,
+        repository.full_name,
+        pages=pages,
+        per_page=REFRESH_PER_PAGE if known else github_api.PER_PAGE,
+    )
     result = record_runs(db, repository, runs)
 
     # Most projects deploy through a provider integration rather than a workflow, so

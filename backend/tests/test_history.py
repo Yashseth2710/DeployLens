@@ -219,8 +219,8 @@ def test_a_merge_is_collected_on_the_next_pass(
 
     monkeypatch.setattr(
         autosync.workflow_sync,
-        "sync_repository",
-        lambda db_, repo, token: _no_runs(),
+        "fetch",
+        lambda token, full_name, pages, per_page, settled_ids: _no_runs(),
         raising=True,
     )
     monkeypatch.setattr(
@@ -243,9 +243,9 @@ def test_a_merge_is_collected_on_the_next_pass(
 
 
 def _no_runs():
-    from app.services.workflow_sync import SyncResult
+    from app.services.workflow_sync import RunPayload
 
-    return SyncResult(runs_seen=0, runs_added=0, deployments_added=0, provider_deployments=0)
+    return RunPayload(runs=[], deployments=[])
 
 
 def _should_not_be_asked(token: str, name: str):

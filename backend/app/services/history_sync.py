@@ -21,6 +21,36 @@ class HistoryResult:
     commit_weeks: int
 
 
+@dataclass(frozen=True)
+class HistoryPayload:
+    pull_requests: list[GitHubPullRequest]
+    commit_weeks: list[GitHubCommitWeek]
+
+
+def plan(db: Session, repository: Repository) -> int:
+    known = db.scalar(
+        select(PullRequest.id).where(PullRequest.repository_id == repository.id).limit(1)
+    )
+    return REFRESH_PAGES if known else FIRST_SYNC_PAGES
+
+
+def fetch(access_token: str, full_name: str, pages: int, with_commits: bool) -> HistoryPayload:
+    return HistoryPayload(
+        pull_requests=github_api.list_pull_requests(access_token, full_name, pages=pages),
+        commit_weeks=github_api.commit_activity(access_token, full_name) if with_commits else [],
+    )
+
+
+def record(db: Session, repository: Repository, payload: HistoryPayload) -> HistoryResult:
+    record_pull_requests(db, repository, payload.pull_requests)
+    if payload.commit_weeks:
+        record_commit_weeks(db, repository, payload.commit_weeks)
+    db.commit()
+    return HistoryResult(
+        pull_requests_seen=len(payload.pull_requests), commit_weeks=len(payload.commit_weeks)
+    )
+
+
 def sync_history(
     db: Session, repository: Repository, access_token: str, with_commits: bool = True
 ) -> HistoryResult:

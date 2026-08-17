@@ -9,23 +9,29 @@ from app.models.user import User
 from app.models.workflow import Deployment, WorkflowRun
 from app.services import activity, autosync
 from app.services.github_api import GitHubRateLimitError
-from app.services.history_sync import HistoryResult
+from app.services.history_sync import HistoryPayload
+from app.services.workflow_sync import RunPayload
 
 NOW = datetime.now(UTC)
 
 
 @pytest.fixture(autouse=True)
-def _no_history(monkeypatch: pytest.MonkeyPatch) -> None:
-    """This file is about runs and the board. Pull request collection rides along in the
-    same pass and would otherwise reach the real GitHub with a fixture token."""
+def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing in this file should reach GitHub.
+
+    Pull requests ride along in the same pass as runs, and the endpoint hands its
+    collection to a background task that opens a session of its own — which would write
+    outside the transaction this test rolls back.
+    """
     monkeypatch.setattr(
         autosync.history_sync,
-        "sync_history",
-        lambda db, repository, token, with_commits=True: HistoryResult(
-            pull_requests_seen=0, commit_weeks=0
+        "fetch",
+        lambda token, full_name, pages, with_commits: HistoryPayload(
+            pull_requests=[], commit_weeks=[]
         ),
         raising=True,
     )
+    monkeypatch.setattr(autosync, "collect_for", lambda user_id, token: None, raising=True)
 
 
 @pytest.fixture
@@ -116,7 +122,7 @@ def test_refresh_skips_repositories_that_were_just_read(
     # level constant is already stale by the time a full suite reaches this test.
     repository.last_synced_at = datetime.now(UTC)
     db.flush()
-    monkeypatch.setattr(autosync.workflow_sync, "sync_repository", _fail_if_called, raising=True)
+    monkeypatch.setattr(autosync.workflow_sync, "fetch", _fail_if_called, raising=True)
 
     report = autosync.refresh_user(db, user, "token")
 
@@ -133,7 +139,7 @@ def test_a_repository_read_longer_ago_than_the_window_is_pulled_again(
         datetime.now(UTC) - autosync.watching_interval(1) - timedelta(seconds=1)
     )
     db.flush()
-    monkeypatch.setattr(autosync.workflow_sync, "sync_repository", _synced_nothing, raising=True)
+    monkeypatch.setattr(autosync.workflow_sync, "fetch", _fetched_nothing, raising=True)
 
     report = autosync.refresh_user(db, user, "token")
 
@@ -158,13 +164,13 @@ def test_one_unreadable_repository_does_not_stop_the_rest(
 
     calls: list[str] = []
 
-    def flaky(db_, repo, token):
-        calls.append(repo.full_name)
-        if repo.full_name == "octocat/deploylens":
+    def flaky(token, full_name, pages, per_page, settled_ids):
+        calls.append(full_name)
+        if full_name == "octocat/deploylens":
             raise GitHubRateLimitError("rate limited")
-        return _synced_nothing(db_, repo, token)
+        return RunPayload(runs=[], deployments=[])
 
-    monkeypatch.setattr(autosync.workflow_sync, "sync_repository", flaky, raising=True)
+    monkeypatch.setattr(autosync.workflow_sync, "fetch", flaky, raising=True)
 
     report = autosync.refresh_user(db, user, "token")
 
@@ -180,7 +186,7 @@ def test_activity_endpoint_reports_the_live_board_and_its_poll_rate(
     repository: Repository,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr(autosync.workflow_sync, "sync_repository", _synced_nothing, raising=True)
+    monkeypatch.setattr(autosync.workflow_sync, "fetch", _fetched_nothing, raising=True)
     add_run(db, repository, github_run_id=7301, status="in_progress", conclusion=None)
 
     body = client.post("/api/activity").json()
@@ -225,11 +231,9 @@ def test_the_window_widens_rather_than_outrunning_the_rate_limit(db: Session):
         assert passes_per_hour * count * autosync.REQUESTS_PER_PASS <= autosync.HOURLY_BUDGET + 1
 
 
-def _synced_nothing(db_: Session, repository: Repository, token: str):
-    from app.services.workflow_sync import SyncResult
-
-    return SyncResult(runs_seen=0, runs_added=0, deployments_added=0, provider_deployments=0)
+def _fetched_nothing(token: str, full_name: str, pages: int, per_page: int, settled_ids):
+    return RunPayload(runs=[], deployments=[])
 
 
-def _fail_if_called(db_: Session, repository: Repository, token: str):
+def _fail_if_called(token: str, full_name: str, pages: int, per_page: int, settled_ids):
     raise AssertionError("a repository read moments ago should not be read again")
