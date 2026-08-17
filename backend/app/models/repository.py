@@ -35,6 +35,9 @@ class Repository(Base, PrimaryKeyMixin, TimestampMixin):
     connected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # When GitHub was last read for this repository. Null means never, which is what
+    # makes a freshly connected repository the first thing the next sweep collects.
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped["User"] = relationship(back_populates="repositories")
     workflow_runs: Mapped[list["WorkflowRun"]] = relationship(

@@ -1,9 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
 import type {
+  ActivityBoard,
   AvailableRepository,
   ConnectedRepository,
   DeploymentSummary,
@@ -14,8 +16,12 @@ import type {
   WorkflowRunRow,
 } from "@/lib/types";
 
+// The first ask happens before the server has said how often to come back.
+const IDLE_POLL_MS = 45_000;
+
 export const keys = {
   session: ["session"] as const,
+  activity: ["activity"] as const,
   available: ["repositories", "available"] as const,
   connected: ["repositories", "connected"] as const,
   overview: (days: number) => ["analytics", "overview", days] as const,
@@ -98,6 +104,76 @@ export function useSignOut() {
   return useMutation({
     mutationFn: () => api<void>("/api/auth/logout", { method: "POST" }),
     onSuccess: () => client.clear(),
+  });
+}
+
+/**
+ * The loop that makes the product current. Asking for the board is what triggers
+ * the pull, so nobody has to press anything; the server decides how long to wait
+ * before the next ask, because only it knows whether something is running.
+ *
+ * Everything downstream is invalidated whenever a pull actually brought
+ * something back, so the dashboard's numbers move with the board rather than
+ * lagging a page load behind it.
+ */
+export function useActivityBoard(enabled: boolean) {
+  const client = useQueryClient();
+  const [poll, setPoll] = useState(IDLE_POLL_MS);
+
+  const board = useQuery({
+    queryKey: keys.activity,
+    queryFn: async () => {
+      const next = await api<ActivityBoard>("/api/activity", { method: "POST" });
+      setPoll(next.poll_seconds * 1000);
+      return next;
+    },
+    enabled,
+    retry: false,
+    refetchInterval: poll,
+    // A tab left open in the background should not keep waking the database.
+    refetchIntervalInBackground: false,
+  });
+
+  const brought = board.data?.synced ?? 0;
+  useEffect(() => {
+    if (brought > 0) {
+      void client.invalidateQueries({ queryKey: ["analytics"] });
+      void client.invalidateQueries({ queryKey: ["runs"] });
+      void client.invalidateQueries({ queryKey: ["deployments"] });
+    }
+  }, [brought, client, board.dataUpdatedAt]);
+
+  return board;
+}
+
+/**
+ * Reads the board another component is already polling, without starting a second
+ * loop of its own. The navigation wants the count, not the responsibility.
+ */
+export function useLiveCount(): number {
+  const { data } = useQuery({
+    queryKey: keys.activity,
+    queryFn: () => api<ActivityBoard>("/api/activity", { method: "POST" }),
+    enabled: false,
+  });
+  return data?.live_count ?? 0;
+}
+
+/**
+ * The manual path, kept for recovery rather than routine use: it skips the
+ * staleness throttle and pulls every repository now.
+ */
+export function useSyncNow() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api<ActivityBoard>("/api/activity?force=true", { method: "POST" }),
+    onSuccess: (board) => {
+      client.setQueryData(keys.activity, board);
+      void client.invalidateQueries({ queryKey: ["analytics"] });
+      void client.invalidateQueries({ queryKey: ["runs"] });
+      void client.invalidateQueries({ queryKey: ["deployments"] });
+    },
   });
 }
 

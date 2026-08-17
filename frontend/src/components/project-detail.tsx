@@ -4,15 +4,18 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { ButtonLink } from "@/components/button";
+import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
 import { Reading } from "@/components/reading";
 import { RunFeed } from "@/components/run-feed";
 import { Sheet, SheetHead } from "@/components/sheet";
+import { SyncLine } from "@/components/sync-line";
 import { ControlBar, OutcomeMark, SignOff, StepWedge, type Outcome } from "@/components/status";
 import { WindowControl, type WindowDays } from "@/components/window-control";
 import { ApiError } from "@/lib/api";
 import { formatDuration, formatWhen, outcomeOf, runOutcome } from "@/lib/outcome";
 import {
+  useActivityBoard,
   useRecentDeployments,
   useRecentRuns,
   useRepositoryDetail,
@@ -35,9 +38,13 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
   const signedIn = Boolean(session.data);
   const [days, setDays] = useState<WindowDays>(30);
 
+  // The same board the dashboard and the live page watch, filtered to this project.
+  // One loop serves every open page, and pulling for it refreshes the readings below.
+  const board = useActivityBoard(signedIn);
   const detail = useRepositoryDetail(repositoryId, days, signedIn);
   const runs = useRecentRuns(RUN_FEED_LENGTH, signedIn, repositoryId);
   const deploys = useRecentDeployments(DEPLOY_LIST_LENGTH, signedIn, repositoryId);
+  const activity = (board.data?.items ?? []).filter((item) => item.repository_id === repositoryId);
 
   if (session.isPending || (signedIn && detail.isPending)) {
     return <PullingSheet />;
@@ -112,7 +119,11 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
                 : "no history collected"}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <SyncLine
+              lastSyncedAt={board.data?.last_synced_at ?? null}
+              failed={board.data?.failed ?? 0}
+            />
             <ButtonLink
               href={repository.github_url}
               target="_blank"
@@ -126,6 +137,10 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
           </div>
         </div>
       </div>
+
+      {activity.length > 0 ? (
+        <LiveActivity items={activity} loading={false} title="Happening now" />
+      ) : null}
 
       <Sheet>
         <SheetHead title="This project" meta={window} />

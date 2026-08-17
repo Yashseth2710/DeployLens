@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/cn";
-import { useSession } from "@/lib/queries";
+import { useLiveCount, useSession } from "@/lib/queries";
 
 const LINKS = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/live", label: "Live" },
   { href: "/repositories", label: "Repositories" },
 ];
 
@@ -18,6 +19,7 @@ const LINKS = [
 export function MainNav() {
   const session = useSession();
   const pathname = usePathname();
+  const live = useLiveCount();
 
   if (!session.data) {
     return null;
@@ -38,6 +40,11 @@ export function MainNav() {
               )}
             >
               {link.label}
+              {link.href === "/live" && live > 0 ? (
+                <span className="bg-wait ml-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle">
+                  <span className="sr-only">{live} running</span>
+                </span>
+              ) : null}
             </Link>
           </li>
         );
