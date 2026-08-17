@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.repository import Repository
 from app.models.user import User
 from app.services.github_api import API_URL
@@ -164,3 +165,17 @@ def test_disconnecting_something_that_is_not_connected_is_a_404(
 )
 def test_every_repository_endpoint_needs_a_session(client: TestClient, method: str, path: str):
     assert getattr(client, method)(path).status_code == 401
+
+
+def test_connecting_still_succeeds_when_the_hook_cannot_be_created(
+    client: TestClient, db: Session, signed_in: User, github, monkeypatch
+):
+    """A repository with no hook is still worth having: its history syncs on demand,
+    and every later sync retries the registration."""
+    monkeypatch.setattr(get_settings(), "app_url", "https://deploylens.example.com")
+    github.get(f"{API_URL}/repos/octocat/deploylens/hooks").respond(502, json={})
+
+    response = connect(client, DASHBOARD["id"])
+
+    assert response.status_code == 201
+    assert db.scalar(select(Repository)) is not None
