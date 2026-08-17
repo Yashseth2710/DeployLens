@@ -15,18 +15,24 @@ from app.services.github_api import GitHubError
 # enough that there is nothing left for a manual control to do.
 #
 # The cost is real and worth stating: each pass spends two GitHub requests per
-# repository, so an open tab on three repositories runs at roughly 2100 of the 5000
-# requests an hour a token is allowed. Somebody tracking a dozen repositories would
-# exhaust it, and this is the number to raise when that happens.
+# repository for runs and deployments and a third for pull requests, so an open tab on
+# three repositories runs at roughly 3200 of the 5000 requests an hour a token is
+# allowed. Five repositories would exhaust it, and this is the number to raise when that
+# happens — commit stats are already on their own far longer window below.
 WATCHING_MAX_AGE = timedelta(seconds=10)
 
 # The scheduled run has no browser watching it, so it refreshes everything it finds
 # rather than deciding what looks interesting.
 CRON_MAX_AGE = timedelta(minutes=30)
 
-# A pull request that was merged an hour ago is still merged. Reading them at the run
-# cadence would spend nearly every request confirming nothing changed.
-HISTORY_MAX_AGE = timedelta(minutes=20)
+# A pull request changes state the instant somebody merges it, and a board showing a
+# merged one as open is wrong rather than merely late — so it runs at the same window as
+# everything else. This is the third request each pass spends per repository.
+PULL_REQUEST_MAX_AGE = timedelta(seconds=10)
+
+# Commit totals are weekly buckets that GitHub recomputes on its own schedule, so asking
+# more often than this reads the same numbers back.
+COMMIT_STATS_MAX_AGE = timedelta(minutes=30)
 
 
 @dataclass(frozen=True)
@@ -96,16 +102,20 @@ def _refresh(
         repository.last_synced_at = datetime.now(UTC)
         synced += 1
 
-        # Pull requests and commit totals move on a different clock from workflow runs.
-        # Reading them at the run cadence would spend most of its requests confirming
-        # that a merged pull request is still merged.
-        if _history_is_stale(repository):
+        # Pull requests and commit totals run on their own clocks, and on each other's
+        # too: a merge must show up promptly, a year of weekly commit counts need not.
+        with_commits = _is_older_than(repository.commits_synced_at, COMMIT_STATS_MAX_AGE)
+        if _is_older_than(repository.history_synced_at, PULL_REQUEST_MAX_AGE) or with_commits:
             try:
-                history = history_sync.sync_history(db, repository, access_token)
+                history = history_sync.sync_history(
+                    db, repository, access_token, with_commits=with_commits
+                )
             except GitHubError:
                 continue
             pull_requests += history.pull_requests_seen
             repository.history_synced_at = datetime.now(UTC)
+            if with_commits:
+                repository.commits_synced_at = datetime.now(UTC)
 
     db.commit()
     return RefreshReport(
@@ -125,10 +135,8 @@ def _is_stale(repository: Repository, max_age: timedelta) -> bool:
     return datetime.now(UTC) - repository.last_synced_at >= max_age
 
 
-def _history_is_stale(repository: Repository) -> bool:
-    if repository.history_synced_at is None:
-        return True
-    return datetime.now(UTC) - repository.history_synced_at >= HISTORY_MAX_AGE
+def _is_older_than(stamp: datetime | None, max_age: timedelta) -> bool:
+    return stamp is None or datetime.now(UTC) - stamp >= max_age
 
 
 def _oldest(repositories: list[Repository]) -> datetime | None:

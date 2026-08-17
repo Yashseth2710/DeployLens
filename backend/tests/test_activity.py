@@ -97,7 +97,9 @@ def test_board_ignores_another_users_repositories(db: Session, user: User, repos
 def test_refresh_skips_repositories_that_were_just_read(
     db: Session, user: User, repository: Repository, monkeypatch: pytest.MonkeyPatch
 ):
-    repository.last_synced_at = NOW
+    # Read at assertion time, not at import: the window is ten seconds, and a module
+    # level constant is already stale by the time a full suite reaches this test.
+    repository.last_synced_at = datetime.now(UTC)
     db.flush()
     monkeypatch.setattr(autosync.workflow_sync, "sync_repository", _fail_if_called, raising=True)
 
@@ -112,7 +114,7 @@ def test_a_repository_read_longer_ago_than_the_window_is_pulled_again(
 ):
     """The throttle is what an open page feels as its refresh rate, so a repository
     older than it must be collected without anybody asking."""
-    repository.last_synced_at = NOW - autosync.WATCHING_MAX_AGE - timedelta(seconds=1)
+    repository.last_synced_at = datetime.now(UTC) - autosync.WATCHING_MAX_AGE - timedelta(seconds=1)
     db.flush()
     monkeypatch.setattr(autosync.workflow_sync, "sync_repository", _synced_nothing, raising=True)
 

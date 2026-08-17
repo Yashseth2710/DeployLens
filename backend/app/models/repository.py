@@ -39,9 +39,13 @@ class Repository(Base, PrimaryKeyMixin, TimestampMixin):
     # When GitHub was last read for this repository. Null means never, which is what
     # makes a freshly connected repository the first thing the next sweep collects.
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Pull requests and commit totals move far more slowly than workflow runs, so they
-    # are collected on their own, much longer, cadence.
+    # Pull requests change state the moment somebody merges, so they are collected
+    # nearly as often as runs.
     history_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Commit totals are a year of weekly buckets that GitHub itself computes on a delay.
+    # Reading them at the pull request cadence would spend a request an hour to watch a
+    # number that moves once a day.
+    commits_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped["User"] = relationship(back_populates="repositories")
     workflow_runs: Mapped[list["WorkflowRun"]] = relationship(

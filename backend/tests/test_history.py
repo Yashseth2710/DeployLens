@@ -176,3 +176,77 @@ def test_pull_requests_of_another_user_are_not_listed(
     db.commit()
 
     assert client.get("/api/pull-requests").json() == []
+
+
+def test_commit_stats_are_skipped_when_only_pull_requests_are_due(
+    db: Session, repository: Repository, monkeypatch: pytest.MonkeyPatch
+):
+    """A merge has to appear promptly; a year of weekly commit counts is the same year
+    it was a minute ago. Asking for both on the fast cadence would double the cost of
+    every pass to re-read numbers that had not moved."""
+    asked: list[str] = []
+
+    monkeypatch.setattr(
+        history_sync.github_api,
+        "list_pull_requests",
+        lambda token, name, pages=1: asked.append("pulls") or [],
+        raising=True,
+    )
+    monkeypatch.setattr(
+        history_sync.github_api,
+        "commit_activity",
+        lambda token, name: asked.append("commits") or [],
+        raising=True,
+    )
+
+    history_sync.sync_history(db, repository, "token", with_commits=False)
+
+    assert asked == ["pulls"]
+
+
+def test_a_merge_is_collected_on_the_next_pass(
+    db: Session, user: User, repository: Repository, monkeypatch: pytest.MonkeyPatch
+):
+    """The defect this cadence exists to prevent: a pull request merged moments ago
+    still reading as open because nothing had asked GitHub since. Commit stats stay on
+    their own window and must not be pulled along with it."""
+    from app.services import autosync
+
+    repository.last_synced_at = datetime.now(UTC) - timedelta(minutes=5)
+    repository.history_synced_at = datetime.now(UTC) - timedelta(minutes=5)
+    repository.commits_synced_at = datetime.now(UTC)
+    db.flush()
+
+    monkeypatch.setattr(
+        autosync.workflow_sync,
+        "sync_repository",
+        lambda db_, repo, token: _no_runs(),
+        raising=True,
+    )
+    monkeypatch.setattr(
+        history_sync.github_api,
+        "list_pull_requests",
+        lambda token, name, pages=1: [pull_request(7)],
+        raising=True,
+    )
+    monkeypatch.setattr(
+        history_sync.github_api, "commit_activity", _should_not_be_asked, raising=True
+    )
+
+    report = autosync.refresh_user(db, user, "token")
+
+    assert report.pull_requests == 1
+    stored = db.scalars(
+        PullRequest.__table__.select().where(PullRequest.repository_id == repository.id)
+    ).all()
+    assert len(stored) == 1
+
+
+def _no_runs():
+    from app.services.workflow_sync import SyncResult
+
+    return SyncResult(runs_seen=0, runs_added=0, deployments_added=0, provider_deployments=0)
+
+
+def _should_not_be_asked(token: str, name: str):
+    raise AssertionError("commit stats were collected on the pull request cadence")
