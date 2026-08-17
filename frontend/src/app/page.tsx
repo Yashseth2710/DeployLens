@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/app-shell";
 import { Aperture } from "@/components/brand";
-import { ButtonLink } from "@/components/button";
+import { EntryAction } from "@/components/entry-action";
 import { Reading } from "@/components/reading";
 import { Sheet, SheetHead } from "@/components/sheet";
 import { ControlBar, SignOff, StepWedge, type Outcome } from "@/components/status";
@@ -35,14 +35,7 @@ export default function Home() {
             frequency, duration and uptime — read together, the way a printer reads a press sheet.
           </p>
 
-          <div className="flex flex-col items-start gap-3">
-            <ButtonLink href="/api/auth/github" variant="primary">
-              Sign in with GitHub
-            </ButtonLink>
-            <span className="label !tracking-[0.1em]">
-              Reads your runs · registers one webhook per connected repository
-            </span>
-          </div>
+          <EntryAction />
 
           <dl className="border-rule mt-1 grid gap-x-10 gap-y-6 border-t pt-7 sm:grid-cols-3">
             {[
