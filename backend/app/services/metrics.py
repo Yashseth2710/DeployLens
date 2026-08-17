@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -8,6 +8,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.health import HealthCheck, HealthResult
+from app.models.history import CommitWeek, PullRequest
 from app.models.repository import Repository
 from app.models.workflow import Deployment, WorkflowRun
 
@@ -68,6 +69,25 @@ class PipelineMetrics:
 
 
 EMPTY_PIPELINE = PipelineMetrics(0, 0, 0, None, None, 0, 0, None)
+
+
+@dataclass(frozen=True)
+class ReviewMetrics:
+    """What went through review, and what it cost. `merge_rate` is measured over
+    decided pull requests only — one still open has not failed, it has not finished."""
+
+    opened: int
+    merged: int
+    closed_unmerged: int
+    open_now: int
+    merge_rate: float | None
+    median_hours_to_merge: float | None
+    commits: int
+    commits_per_week: float
+    first_commit_week: date | None
+
+
+EMPTY_REVIEW = ReviewMetrics(0, 0, 0, 0, None, None, 0, 0.0, None)
 
 
 @dataclass(frozen=True)
@@ -345,6 +365,66 @@ def _uptime_by_repository(
     return measured
 
 
+def review_metrics(db: Session, repository_ids: list[UUID], days: int) -> ReviewMetrics:
+    """Pull requests counted by what happened to them, and commits read from the weekly
+    totals rather than a row per commit.
+
+    Opened, merged and closed are counted in their own windows on purpose: a pull
+    request opened before the window and merged inside it is a merge this month, and
+    counting it only by when it opened would hide the work that just landed.
+    """
+    if not repository_ids:
+        return EMPTY_REVIEW
+
+    cutoff = _cutoff(days)
+    scope = PullRequest.repository_id.in_(repository_ids)
+
+    opened, merged, closed_unmerged, open_now = db.execute(
+        select(
+            func.count(case((PullRequest.opened_at >= cutoff, 1))),
+            func.count(case((PullRequest.merged_at >= cutoff, 1))),
+            func.count(
+                case(((PullRequest.closed_at >= cutoff) & PullRequest.merged_at.is_(None), 1))
+            ),
+            func.count(case((PullRequest.state == "open", 1))),
+        ).where(scope)
+    ).one()
+
+    median = db.scalar(
+        select(
+            func.percentile_cont(0.5).within_group(
+                func.extract("epoch", PullRequest.merged_at - PullRequest.opened_at)
+            )
+        ).where(scope, PullRequest.merged_at >= cutoff, PullRequest.opened_at.is_not(None))
+    )
+
+    commits, first_week = db.execute(
+        select(func.sum(CommitWeek.commits), func.min(CommitWeek.week_start)).where(
+            CommitWeek.repository_id.in_(repository_ids),
+            CommitWeek.week_start >= _date_cutoff(days),
+        )
+    ).one()
+    earliest = db.scalar(
+        select(func.min(CommitWeek.week_start)).where(CommitWeek.repository_id.in_(repository_ids))
+    )
+
+    decided = merged + closed_unmerged
+    total_commits = int(commits or 0)
+    return ReviewMetrics(
+        opened=opened,
+        merged=merged,
+        closed_unmerged=closed_unmerged,
+        open_now=open_now,
+        merge_rate=round(merged / decided * 100, 1) if decided else None,
+        # Hours, because "two days to merge" is a different sentence from "51 hours",
+        # and the client is the one that should choose which to print.
+        median_hours_to_merge=round(median / 3600, 1) if median else None,
+        commits=total_commits,
+        commits_per_week=round(total_commits / days * 7, 2),
+        first_commit_week=earliest or first_week,
+    )
+
+
 def run_groups(
     db: Session, repository_id: UUID, days: int, by: InstrumentedAttribute[Any], limit: int = 20
 ) -> list[RunGroup]:
@@ -466,6 +546,12 @@ def _within_window(query: Select[Any], repository_ids: list[UUID], days: int) ->
         Deployment.repository_id.in_(repository_ids),
         Deployment.started_at >= _cutoff(days),
     )
+
+
+def _date_cutoff(days: int) -> date:
+    """Commit weeks are dates, not timestamps, so they need a date to compare against
+    rather than the database's own clock."""
+    return (datetime.now(UTC) - timedelta(days=days)).date()
 
 
 def _cutoff(days: int) -> ColumnElement[Any]:

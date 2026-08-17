@@ -10,6 +10,7 @@ import type {
   ConnectedRepository,
   DeploymentSummary,
   Overview,
+  PullRequestRow,
   RepositoryDetail,
   SyncSummary,
   UserProfile,
@@ -29,6 +30,8 @@ export const keys = {
   deployments: (limit: number, repositoryId?: string) =>
     ["deployments", limit, repositoryId ?? "all"] as const,
   runs: (limit: number, repositoryId?: string) => ["runs", limit, repositoryId ?? "all"] as const,
+  pullRequests: (limit: number, repositoryId?: string) =>
+    ["pull-requests", limit, repositoryId ?? "all"] as const,
 };
 
 export function useSession() {
@@ -140,6 +143,7 @@ export function useActivityBoard(enabled: boolean) {
       void client.invalidateQueries({ queryKey: ["analytics"] });
       void client.invalidateQueries({ queryKey: ["runs"] });
       void client.invalidateQueries({ queryKey: ["deployments"] });
+      void client.invalidateQueries({ queryKey: ["pull-requests"] });
     }
   }, [brought, client, board.dataUpdatedAt]);
 
@@ -173,6 +177,7 @@ export function useSyncNow() {
       void client.invalidateQueries({ queryKey: ["analytics"] });
       void client.invalidateQueries({ queryKey: ["runs"] });
       void client.invalidateQueries({ queryKey: ["deployments"] });
+      void client.invalidateQueries({ queryKey: ["pull-requests"] });
     },
   });
 }
@@ -222,6 +227,20 @@ export function useRecentRuns(limit: number, enabled: boolean, repositoryId?: st
   return useQuery({
     queryKey: keys.runs(limit, repositoryId),
     queryFn: () => api<WorkflowRunRow[]>(`/api/runs?${scoped(limit, repositoryId)}`),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * Pull requests carry the one thing runs cannot say: whether the work was merged
+ * or abandoned. GitHub calls both of those "closed", so the distinction is made
+ * here and not read off a state field.
+ */
+export function usePullRequests(limit: number, enabled: boolean, repositoryId?: string) {
+  return useQuery({
+    queryKey: keys.pullRequests(limit, repositoryId),
+    queryFn: () => api<PullRequestRow[]>(`/api/pull-requests?${scoped(limit, repositoryId)}`),
     enabled,
     retry: false,
   });

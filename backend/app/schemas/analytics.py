@@ -35,6 +35,18 @@ class PipelineMetricsOut(BaseModel):
     last_run_at: datetime | None
 
 
+class ReviewMetricsOut(BaseModel):
+    opened: int
+    merged: int
+    closed_unmerged: int
+    open_now: int
+    merge_rate: float | None
+    median_hours_to_merge: float | None
+    commits: int
+    commits_per_week: float
+    first_commit_week: date | None
+
+
 class RepositoryMetricsOut(BaseModel):
     repository_id: UUID
     full_name: str
@@ -65,6 +77,7 @@ class OverviewOut(BaseModel):
     delivery: DeliveryMetricsOut
     pipeline: PipelineMetricsOut
     uptime: UptimeMetricsOut
+    review: ReviewMetricsOut
     health_score: int | None
     repositories: list[RepositoryMetricsOut]
 
@@ -85,6 +98,7 @@ class RepositoryDetailOut(BaseModel):
     delivery: DeliveryMetricsOut
     pipeline: PipelineMetricsOut
     uptime: UptimeMetricsOut
+    review: ReviewMetricsOut
     health_score: int | None
     workflows: list[RunGroupOut]
     branches: list[RunGroupOut]

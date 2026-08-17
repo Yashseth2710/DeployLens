@@ -39,6 +39,20 @@ export function runOutcome(status: string, conclusion: string | null): Outcome {
   return outcomeOf(conclusion ?? status);
 }
 
+/**
+ * Hours are how the API measures a merge, but nobody says "51 hours" out loud.
+ */
+export function formatHours(hours: number | null): string | null {
+  if (hours === null) return null;
+  if (hours < 1) return `${Math.round(hours * 60)}m`;
+  if (hours < 48) return `${hours < 10 ? hours.toFixed(1) : Math.round(hours)}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+export function formatMonth(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
 export const EVENT_LABEL: Record<string, string> = {
   push: "push",
   pull_request: "pull request",

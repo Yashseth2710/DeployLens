@@ -9,6 +9,7 @@ import { useLiveCount, useSession } from "@/lib/queries";
 const LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/live", label: "Live" },
+  { href: "/pull-requests", label: "Pull requests" },
   { href: "/repositories", label: "Repositories" },
 ];
 

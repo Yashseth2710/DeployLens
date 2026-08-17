@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -68,6 +68,32 @@ class GitHubDeployment:
     deployment_url: str | None
     created_at: datetime | None
     updated_at: datetime | None
+
+
+@dataclass(frozen=True)
+class GitHubPullRequest:
+    number: int
+    title: str
+    author: str | None
+    state: str
+    draft: bool
+    head_branch: str | None
+    base_branch: str | None
+    html_url: str | None
+    opened_at: datetime | None
+    updated_at: datetime | None
+    merged_at: datetime | None
+    closed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class GitHubCommitWeek:
+    """One week of commits. Kept as a total rather than a row per commit: the questions
+    this product asks are about volume and rhythm, and storing every commit message
+    would be a lot of rows to answer none of them."""
+
+    week_start: date
+    commits: int
 
 
 @contextmanager
@@ -148,6 +174,80 @@ def list_workflow_runs(
             if len(batch) < PER_PAGE:
                 break
     return runs
+
+
+def list_pull_requests(
+    access_token: str, full_name: str, pages: int = 1
+) -> list[GitHubPullRequest]:
+    """Every state, sorted by when each was last touched, so one page holds whatever has
+    moved recently and a first connect can reach back for the rest.
+
+    A closed pull request with no `merged_at` was abandoned, and that distinction is the
+    whole point of collecting these: it is the difference between work that shipped and
+    work that did not.
+    """
+    pull_requests: list[GitHubPullRequest] = []
+    with client(access_token) as http:
+        for page in range(1, min(pages, MAX_PAGES) + 1):
+            batch = get(
+                http,
+                f"/repos/{full_name}/pulls",
+                per_page=PER_PAGE,
+                page=page,
+                state="all",
+                sort="updated",
+                direction="desc",
+            )
+            pull_requests.extend(as_pull_request(item) for item in batch)
+            if len(batch) < PER_PAGE:
+                break
+    return pull_requests
+
+
+def commit_activity(access_token: str, full_name: str) -> list[GitHubCommitWeek]:
+    """A year of weekly commit totals in one request.
+
+    GitHub computes this asynchronously and answers 202 with an empty body while it
+    works, which is not an error — it means ask again shortly. An empty list is the
+    honest answer for now, and the next sync collects it.
+    """
+    with client(access_token) as http:
+        try:
+            response = http.get(f"/repos/{full_name}/stats/commit_activity")
+        except httpx.HTTPError as exc:
+            raise GitHubError(str(exc)) from exc
+        if response.status_code == httpx.codes.ACCEPTED:
+            return []
+        _raise_for_status(response)
+        payload = response.json()
+
+    if not isinstance(payload, list):
+        return []
+    return [
+        GitHubCommitWeek(
+            week_start=datetime.fromtimestamp(week["week"], tz=UTC).date(),
+            commits=week.get("total", 0),
+        )
+        for week in payload
+        if week.get("week") is not None
+    ]
+
+
+def as_pull_request(payload: dict[str, Any]) -> GitHubPullRequest:
+    return GitHubPullRequest(
+        number=payload["number"],
+        title=payload.get("title") or "",
+        author=(payload.get("user") or {}).get("login"),
+        state=payload.get("state") or "open",
+        draft=bool(payload.get("draft")),
+        head_branch=(payload.get("head") or {}).get("ref"),
+        base_branch=(payload.get("base") or {}).get("ref"),
+        html_url=payload.get("html_url"),
+        opened_at=_timestamp(payload.get("created_at")),
+        updated_at=_timestamp(payload.get("updated_at")),
+        merged_at=_timestamp(payload.get("merged_at")),
+        closed_at=_timestamp(payload.get("closed_at")),
+    )
 
 
 def create_webhook(access_token: str, full_name: str, callback_url: str, secret: str) -> None:

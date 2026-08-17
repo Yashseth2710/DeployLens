@@ -92,7 +92,7 @@ export function Dashboard() {
     );
   }
 
-  const { delivery, pipeline, uptime } = data;
+  const { delivery, pipeline, uptime, review } = data;
   const live = (board.data?.items ?? []).filter((item) => item.live);
   const window = `${days} d`;
   const quiet = pipeline.runs === 0 && pipeline.last_run_at !== null;
@@ -176,6 +176,34 @@ export function Dashboard() {
             value={formatDuration(pipeline.average_duration_seconds)}
             sample={`${window} · ${pipeline.runs} runs`}
             absent="not timed"
+          />
+        </div>
+
+        <div className="border-rule grid gap-x-8 gap-y-7 border-t px-5 py-6 sm:grid-cols-2 lg:grid-cols-4">
+          <Reading
+            label="Merged"
+            value={review.merged || null}
+            sample={review.opened ? `${review.opened} opened in window` : "none opened"}
+            absent="none merged"
+          />
+          <Reading
+            label="Merge rate"
+            value={review.merge_rate}
+            unit="%"
+            sample={`${review.merged} of ${review.merged + review.closed_unmerged} decided`}
+            absent="nothing decided"
+          />
+          <Reading
+            label="Open now"
+            value={review.open_now || null}
+            sample="awaiting review"
+            absent="none open"
+          />
+          <Reading
+            label="Commits"
+            value={review.commits || null}
+            sample={`${review.commits_per_week}/wk · ${window}`}
+            absent="none in window"
           />
         </div>
       </Sheet>

@@ -32,6 +32,7 @@ def overview(user: CurrentUser, db: DbSession, days: WindowDays = 30) -> dict[st
         "delivery": delivery,
         "pipeline": pipeline,
         "uptime": uptime,
+        "review": metrics.review_metrics(db, repository_ids, days),
         "health_score": metrics.health_score(delivery, uptime, pipeline),
         "repositories": metrics.per_repository(db, user.id, days),
     }
@@ -61,6 +62,7 @@ def repository_detail(
         "delivery": delivery,
         "pipeline": pipeline,
         "uptime": uptime,
+        "review": metrics.review_metrics(db, ids, days),
         "health_score": metrics.health_score(delivery, uptime, pipeline),
         "workflows": metrics.run_groups(db, repository_id, days, WorkflowRun.workflow_name),
         "branches": metrics.run_groups(db, repository_id, days, WorkflowRun.branch),

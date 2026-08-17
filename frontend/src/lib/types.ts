@@ -132,6 +132,35 @@ export type ActivityBoard = {
   poll_seconds: number;
 };
 
+export type ReviewMetrics = {
+  opened: number;
+  merged: number;
+  closed_unmerged: number;
+  open_now: number;
+  merge_rate: number | null;
+  median_hours_to_merge: number | null;
+  commits: number;
+  commits_per_week: number;
+  first_commit_week: string | null;
+};
+
+export type PullRequestRow = {
+  id: string;
+  repository_id: string;
+  repository_full_name: string;
+  number: number;
+  title: string;
+  author: string | null;
+  outcome: "open" | "merged" | "abandoned";
+  draft: boolean;
+  head_branch: string | null;
+  base_branch: string | null;
+  html_url: string | null;
+  opened_at: string | null;
+  merged_at: string | null;
+  closed_at: string | null;
+};
+
 export type RunGroup = {
   name: string;
   runs: number;
@@ -148,6 +177,7 @@ export type RepositoryDetail = {
   delivery: DeliveryMetrics;
   pipeline: PipelineMetrics;
   uptime: UptimeMetrics;
+  review: ReviewMetrics;
   health_score: number | null;
   workflows: RunGroup[];
   branches: RunGroup[];
@@ -160,6 +190,7 @@ export type Overview = {
   delivery: DeliveryMetrics;
   pipeline: PipelineMetrics;
   uptime: UptimeMetrics;
+  review: ReviewMetrics;
   health_score: number | null;
   repositories: RepositoryMetrics[];
 };

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ButtonLink } from "@/components/button";
 import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
+import { PullRequestList } from "@/components/pull-request-list";
 import { Reading } from "@/components/reading";
 import { RunFeed } from "@/components/run-feed";
 import { Sheet, SheetHead } from "@/components/sheet";
@@ -13,11 +14,12 @@ import { SyncLine } from "@/components/sync-line";
 import { ControlBar, OutcomeMark, SignOff, StepWedge, type Outcome } from "@/components/status";
 import { WindowControl, type WindowDays } from "@/components/window-control";
 import { ApiError } from "@/lib/api";
-import { formatDuration, formatWhen, outcomeOf, runOutcome } from "@/lib/outcome";
+import { formatDuration, formatHours, formatWhen, outcomeOf, runOutcome } from "@/lib/outcome";
 import {
   useActivityBoard,
   useRecentDeployments,
   useRecentRuns,
+  usePullRequests,
   useRepositoryDetail,
   useSession,
 } from "@/lib/queries";
@@ -26,6 +28,7 @@ import type { DeploymentSummary, RunGroup } from "@/lib/types";
 const RUN_FEED_LENGTH = 60;
 const CONTROL_BAR_LENGTH = 24;
 const DEPLOY_LIST_LENGTH = 12;
+const PULL_REQUEST_LENGTH = 40;
 
 /**
  * One project, on its own. The dashboard answers "how is everything"; a
@@ -44,6 +47,7 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
   const detail = useRepositoryDetail(repositoryId, days, signedIn);
   const runs = useRecentRuns(RUN_FEED_LENGTH, signedIn, repositoryId);
   const deploys = useRecentDeployments(DEPLOY_LIST_LENGTH, signedIn, repositoryId);
+  const pullRequests = usePullRequests(PULL_REQUEST_LENGTH, signedIn, repositoryId);
   const activity = (board.data?.items ?? []).filter((item) => item.repository_id === repositoryId);
 
   if (session.isPending || (signedIn && detail.isPending)) {
@@ -93,7 +97,7 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
   const data = detail.data;
   if (!data) return null;
 
-  const { repository, delivery, pipeline, uptime } = data;
+  const { repository, delivery, pipeline, uptime, review } = data;
   const window = `${days} d`;
   const outcomes: Outcome[] = (runs.data ?? [])
     .slice(0, CONTROL_BAR_LENGTH)
@@ -114,8 +118,8 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
             </div>
             <p className="label !tracking-[0.08em]">
               {repository.default_branch} · connected {formatWhen(repository.connected_at)} ·{" "}
-              {data.first_activity_at
-                ? `history back to ${formatDate(data.first_activity_at)}`
+              {earliest(data.first_activity_at, review.first_commit_week)
+                ? `history back to ${formatDate(earliest(data.first_activity_at, review.first_commit_week)!)}`
                 : "no history collected"}
             </p>
           </div>
@@ -196,6 +200,34 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
           />
         </div>
 
+        <div className="border-rule grid gap-x-8 gap-y-7 border-t px-5 py-6 sm:grid-cols-2 lg:grid-cols-4">
+          <Reading
+            label="Merged"
+            value={review.merged || null}
+            sample={review.opened ? `${review.opened} opened in window` : "none opened"}
+            absent="none merged"
+          />
+          <Reading
+            label="Merge rate"
+            value={review.merge_rate}
+            unit="%"
+            sample={`${review.merged} of ${review.merged + review.closed_unmerged} decided`}
+            absent="nothing decided"
+          />
+          <Reading
+            label="Time to merge"
+            value={formatHours(review.median_hours_to_merge)}
+            sample="median"
+            absent="nothing merged"
+          />
+          <Reading
+            label="Commits"
+            value={review.commits || null}
+            sample={`${review.commits_per_week}/wk · ${window}`}
+            absent="none in window"
+          />
+        </div>
+
         {outcomes.length > 0 ? (
           <div className="border-rule flex flex-col gap-2 border-t px-5 py-5">
             <span className="label">Last {outcomes.length} runs · newest first</span>
@@ -222,6 +254,8 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
         loading={deploys.isPending}
         defaultBranch={repository.default_branch}
       />
+
+      <PullRequestList pullRequests={pullRequests.data ?? []} loading={pullRequests.isPending} />
 
       <RunFeed
         runs={runs.data ?? []}
@@ -365,6 +399,17 @@ function toneOf(outcome: Outcome): string {
   if (outcome === "hold") return "text-hold";
   if (outcome === "wait") return "text-wait";
   return "text-ink-faint";
+}
+
+/**
+ * How far back the page can actually see. Runs and commits reach back different
+ * distances - GitHub keeps a year of commit totals but expires old run logs - so
+ * the honest answer is whichever reaches further.
+ */
+function earliest(runFrom: string | null, commitsFrom: string | null): string | null {
+  if (!runFrom) return commitsFrom;
+  if (!commitsFrom) return runFrom;
+  return new Date(commitsFrom) < new Date(runFrom) ? commitsFrom : runFrom;
 }
 
 function formatDate(iso: string): string {
