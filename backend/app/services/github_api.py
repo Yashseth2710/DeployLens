@@ -161,17 +161,22 @@ def get_repository(access_token: str, github_repo_id: int) -> GitHubRepository:
 
 
 def list_workflow_runs(
-    access_token: str, full_name: str, pages: int = 1
+    access_token: str, full_name: str, pages: int = 1, per_page: int = PER_PAGE
 ) -> list[GitHubWorkflowRun]:
-    """Newest first, which is the order GitHub returns. One page of 100 is enough to
-    keep an existing repository current; a first connect asks for more."""
+    """Newest first, which is the order GitHub returns.
+
+    A refresh asks for a small page rather than a full hundred: nothing older than the
+    last few runs can have changed since the previous pass, and a hundred runs is two
+    and a half seconds of payload to learn that. A first connect still asks for
+    everything, because then all of it is new.
+    """
     runs: list[GitHubWorkflowRun] = []
     with client(access_token) as http:
         for page in range(1, min(pages, MAX_PAGES) + 1):
-            payload = get(http, f"/repos/{full_name}/actions/runs", per_page=PER_PAGE, page=page)
+            payload = get(http, f"/repos/{full_name}/actions/runs", per_page=per_page, page=page)
             batch = payload.get("workflow_runs", [])
             runs.extend(as_workflow_run(item) for item in batch)
-            if len(batch) < PER_PAGE:
+            if len(batch) < per_page:
                 break
     return runs
 

@@ -1,9 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from threading import Lock
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.database.session import SessionLocal
 from app.models.repository import Repository
 from app.models.user import User
 from app.services import history_sync, tokens, workflow_sync
@@ -35,6 +40,62 @@ PULL_REQUEST_MAX_AGE = timedelta(seconds=1)
 # Commit totals are weekly buckets that GitHub recomputes on its own schedule, so asking
 # more often than this reads the same numbers back.
 COMMIT_STATS_MAX_AGE = timedelta(minutes=30)
+
+# Enough to overlap every read a handful of repositories needs without opening a
+# connection per repository to GitHub for somebody tracking dozens.
+MAX_PARALLEL_READS = 12
+
+
+@dataclass(frozen=True)
+class CollectionState:
+    """What the page needs to describe collection without waiting for any of it."""
+
+    repositories: int
+    failed: int
+    last_synced_at: datetime | None
+
+
+# One collection per user at a time. Polls arrive every few seconds and a pull takes
+# longer than that, so without this a slow pass would be joined by the next one and both
+# would write the same rows.
+_collecting: set[UUID] = set()
+_guard = Lock()
+
+
+def collection_state(db: Session, user_id: UUID) -> CollectionState:
+    rows = list(
+        db.execute(select(Repository.last_synced_at).where(Repository.user_id == user_id)).scalars()
+    )
+    stamps = [stamp for stamp in rows if stamp is not None]
+    return CollectionState(
+        repositories=len(rows),
+        # A repository we have never managed to read is the only failure the page can
+        # see without the collection it is not waiting for.
+        failed=sum(1 for stamp in rows if stamp is None),
+        last_synced_at=min(stamps) if stamps else None,
+    )
+
+
+def collect_for(user_id: UUID, access_token: str) -> None:
+    """Run a collection after the response has gone out.
+
+    Its own session, because the request's is closed by the time this runs.
+    """
+    with _guard:
+        if user_id in _collecting:
+            return
+        _collecting.add(user_id)
+
+    try:
+        with SessionLocal() as db:
+            user = db.get(User, user_id)
+            if user is None:
+                return
+            with suppress(GitHubAuthExpiredError):
+                refresh_user(db, user, access_token)
+    finally:
+        with _guard:
+            _collecting.discard(user_id)
 
 
 @dataclass(frozen=True)
@@ -103,38 +164,64 @@ def _refresh(
     *,
     max_age: timedelta,
 ) -> RefreshReport:
-    synced = skipped = failed = runs_added = deployments_added = pull_requests = 0
+    synced = failed = runs_added = deployments_added = pull_requests = 0
 
-    for repository in repositories:
-        if not _is_stale(repository, max_age):
-            skipped += 1
-            continue
-        try:
-            result = workflow_sync.sync_repository(db, repository, access_token)
-        except GitHubAuthExpiredError:
-            # Not a failure to count and retry: nothing will succeed until the user signs
-            # in again, and every pass until then would silently show stale data as live.
-            db.commit()
-            raise
-        except GitHubError:
-            # A rate limit or a repository that has since been deleted must not take the
-            # rest of the sweep down with it; the next pass tries again.
-            failed += 1
-            continue
+    due = [repository for repository in repositories if _is_stale(repository, max_age)]
+    skipped = len(repositories) - len(due)
+    if not due:
+        return RefreshReport(0, skipped, 0, 0, 0, 0, _oldest(repositories))
 
-        runs_added += result.runs_added
-        deployments_added += result.deployments_added + result.provider_deployments
-        repository.last_synced_at = datetime.now(UTC)
-        synced += 1
+    # Every GitHub read for every repository at once. These are independent requests
+    # whose cost is latency rather than work, so running them one after another made a
+    # collection take as long as the sum of its round trips — twelve seconds for two
+    # repositories, when the slowest single call is two.
+    with ThreadPoolExecutor(max_workers=min(len(due) * 2, MAX_PARALLEL_READS)) as pool:
+        work = {}
+        for repository in due:
+            pages, per_page, settled = workflow_sync.plan(db, repository)
+            with_commits = _is_older_than(repository.commits_synced_at, COMMIT_STATS_MAX_AGE)
+            work[repository.id] = (
+                repository,
+                with_commits,
+                pool.submit(
+                    workflow_sync.fetch,
+                    access_token,
+                    repository.full_name,
+                    pages,
+                    per_page,
+                    settled,
+                ),
+                pool.submit(
+                    history_sync.fetch,
+                    access_token,
+                    repository.full_name,
+                    history_sync.plan(db, repository),
+                    with_commits,
+                ),
+            )
 
-        # Pull requests and commit totals run on their own clocks, and on each other's
-        # too: a merge must show up promptly, a year of weekly commit counts need not.
-        with_commits = _is_older_than(repository.commits_synced_at, COMMIT_STATS_MAX_AGE)
-        if _is_older_than(repository.history_synced_at, PULL_REQUEST_MAX_AGE) or with_commits:
+        # Writing happens here, on one thread, because a session cannot be shared.
+        for repository, with_commits, runs_future, history_future in work.values():
             try:
-                history = history_sync.sync_history(
-                    db, repository, access_token, with_commits=with_commits
-                )
+                result = workflow_sync.record(db, repository, runs_future.result())
+            except GitHubAuthExpiredError:
+                # Not a failure to count and retry: nothing will succeed until the user
+                # signs in again, and every pass until then would show stale data as live.
+                db.commit()
+                raise
+            except GitHubError:
+                # A rate limit or a repository since deleted must not take the rest of
+                # the sweep down with it; the next pass tries again.
+                failed += 1
+                continue
+
+            runs_added += result.runs_added
+            deployments_added += result.deployments_added + result.provider_deployments
+            repository.last_synced_at = datetime.now(UTC)
+            synced += 1
+
+            try:
+                history = history_sync.record(db, repository, history_future.result())
             except GitHubAuthExpiredError:
                 db.commit()
                 raise
