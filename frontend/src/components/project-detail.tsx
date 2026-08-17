@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { ButtonLink } from "@/components/button";
 import { EndpointMonitor } from "@/components/endpoint-monitor";
+import { ExpandingList } from "@/components/expanding-list";
 import { Findings } from "@/components/findings";
 import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
@@ -33,6 +34,10 @@ const RUN_FEED_LENGTH = 60;
 const CONTROL_BAR_LENGTH = 24;
 const DEPLOY_LIST_LENGTH = 12;
 const PULL_REQUEST_LENGTH = 40;
+
+// How much of each list stands open. The page is read top to bottom, and a sheet
+// that runs past a screen buries the one below it rather than saying more.
+const COLLAPSED_LENGTH = 5;
 
 /**
  * One project, on its own. The dashboard answers "how is everything"; a
@@ -250,15 +255,19 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
 
       <EndpointMonitor repositoryId={repositoryId} />
 
-      <div className="grid gap-8 lg:grid-cols-2">
+      {/* Each sheet keeps its own height: one workflow beside sixteen branches
+          would otherwise stretch the shorter sheet into a panel of empty rule. */}
+      <div className="grid items-start gap-8 lg:grid-cols-2">
         <GroupSheet
           title="By workflow"
           groups={data.workflows}
+          noun="workflows"
           empty="No workflows have run in this window."
         />
         <GroupSheet
           title="By branch"
           groups={data.branches}
+          noun="branches"
           empty="No branch has run anything in this window."
         />
       </div>
@@ -290,10 +299,12 @@ function GroupSheet({
   title,
   groups,
   empty,
+  noun,
 }: {
   title: string;
   groups: RunGroup[];
   empty: string;
+  noun: string;
 }) {
   return (
     <Sheet>
@@ -301,8 +312,8 @@ function GroupSheet({
       {groups.length === 0 ? (
         <Notice title={empty} />
       ) : (
-        <ul>
-          {groups.map((group) => (
+        <ExpandingList items={groups} collapsedLength={COLLAPSED_LENGTH} noun={noun}>
+          {(group) => (
             <li
               key={group.name}
               className="border-rule grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 border-b px-5 py-3 last:border-b-0"
@@ -322,8 +333,8 @@ function GroupSheet({
                 {formatWhen(group.last_run_at)}
               </span>
             </li>
-          ))}
-        </ul>
+          )}
+        </ExpandingList>
       )}
     </Sheet>
   );
@@ -358,8 +369,8 @@ function Deploys({
           detail={`Deploys are read from GitHub — both from a workflow that ships ${defaultBranch} and from a hosting provider that records its own. Neither has reported one in this project yet.`}
         />
       ) : (
-        <ul>
-          {deployments.map((deploy) => {
+        <ExpandingList items={deployments} collapsedLength={COLLAPSED_LENGTH} noun="deploys">
+          {(deploy) => {
             const outcome = outcomeOf(deploy.status);
             return (
               <li
@@ -388,8 +399,8 @@ function Deploys({
                 </span>
               </li>
             );
-          })}
-        </ul>
+          }}
+        </ExpandingList>
       )}
     </Sheet>
   );

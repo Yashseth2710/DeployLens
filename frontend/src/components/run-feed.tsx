@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { ExpandingList } from "@/components/expanding-list";
 import { Notice } from "@/components/notice";
 import { Sheet, SheetHead } from "@/components/sheet";
 import { OutcomeMark } from "@/components/status";
@@ -10,6 +11,10 @@ import { EVENT_LABEL, formatDuration, formatWhen, runOutcome } from "@/lib/outco
 import type { WorkflowRunRow } from "@/lib/types";
 
 const DEPLOY_WORKFLOW = /deploy|release|publish|ship|promote/i;
+
+// The five newest answer "what happened just now", which is what the feed is
+// usually open for. The rest is one press away rather than a page of scrolling.
+const COLLAPSED_LENGTH = 5;
 
 type RunFilter = "all" | "failed" | "deploys";
 
@@ -101,8 +106,8 @@ export function RunFeed({
           }
         />
       ) : (
-        <ul>
-          {shown.map((run) => {
+        <ExpandingList key={filter} items={shown} collapsedLength={COLLAPSED_LENGTH} noun="runs">
+          {(run) => {
             const outcome = runOutcome(run.status, run.conclusion);
             return (
               <li
@@ -130,8 +135,8 @@ export function RunFeed({
                 </span>
               </li>
             );
-          })}
-        </ul>
+          }}
+        </ExpandingList>
       )}
     </Sheet>
   );
