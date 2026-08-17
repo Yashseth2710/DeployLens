@@ -108,6 +108,30 @@ export type RepositoryMetrics = {
   health_score: number | null;
 };
 
+export type ActivityItem = {
+  kind: "run" | "deploy";
+  id: string;
+  repository_id: string;
+  repository_full_name: string;
+  title: string;
+  detail: string | null;
+  status: string;
+  conclusion: string | null;
+  live: boolean;
+  started_at: string | null;
+  completed_at: string | null;
+  url: string | null;
+};
+
+export type ActivityBoard = {
+  items: ActivityItem[];
+  live_count: number;
+  last_synced_at: string | null;
+  synced: number;
+  failed: number;
+  poll_seconds: number;
+};
+
 export type RunGroup = {
   name: string;
   runs: number;

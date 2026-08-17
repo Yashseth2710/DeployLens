@@ -3,15 +3,23 @@
 import { useMemo, useState } from "react";
 
 import { ButtonLink } from "@/components/button";
+import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
 import { ProjectSheet } from "@/components/project-sheet";
 import { Reading } from "@/components/reading";
 import { RunFeed } from "@/components/run-feed";
 import { Sheet, SheetHead } from "@/components/sheet";
 import { StepWedge } from "@/components/status";
+import { SyncLine } from "@/components/sync-line";
 import { WindowControl, type WindowDays } from "@/components/window-control";
 import { formatDuration, formatWhen } from "@/lib/outcome";
-import { useOverview, useRecentDeployments, useRecentRuns, useSession } from "@/lib/queries";
+import {
+  useActivityBoard,
+  useOverview,
+  useRecentDeployments,
+  useRecentRuns,
+  useSession,
+} from "@/lib/queries";
 
 const CONTROL_BAR_LENGTH = 12;
 const RUN_FEED_LENGTH = 40;
@@ -21,6 +29,7 @@ export function Dashboard() {
   const signedIn = Boolean(session.data);
   const [days, setDays] = useState<WindowDays>(30);
 
+  const board = useActivityBoard(signedIn);
   const overview = useOverview(days, signedIn);
   const deployments = useRecentDeployments(100, signedIn);
   const runs = useRecentRuns(RUN_FEED_LENGTH, signedIn);
@@ -84,6 +93,7 @@ export function Dashboard() {
   }
 
   const { delivery, pipeline, uptime } = data;
+  const live = (board.data?.items ?? []).filter((item) => item.live);
   const window = `${days} d`;
   const quiet = pipeline.runs === 0 && pipeline.last_run_at !== null;
 
@@ -97,8 +107,16 @@ export function Dashboard() {
             tracked · read over the last {days} days
           </p>
         </div>
-        <WindowControl value={days} onChange={setDays} />
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <SyncLine
+            lastSyncedAt={board.data?.last_synced_at ?? null}
+            failed={board.data?.failed ?? 0}
+          />
+          <WindowControl value={days} onChange={setDays} />
+        </div>
       </div>
+
+      {live.length > 0 ? <LiveActivity items={live} loading={false} compact /> : null}
 
       {quiet ? (
         <p className="label border-wait/50 bg-wait-quiet !text-wait border px-4 py-3 !tracking-[0.1em]">

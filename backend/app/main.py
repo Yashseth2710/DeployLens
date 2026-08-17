@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.api import (
+    activity,
     analytics,
     auth,
     cron,
@@ -16,6 +17,7 @@ app = FastAPI(title="DeployLens API", docs_url="/api/docs", openapi_url="/api/op
 
 install_github_error_handlers(app)
 app.include_router(auth.router)
+app.include_router(activity.router)
 app.include_router(repositories.router)
 app.include_router(deployments.router)
 app.include_router(runs.router)
