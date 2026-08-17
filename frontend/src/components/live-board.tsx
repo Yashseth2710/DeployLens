@@ -5,7 +5,7 @@ import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
 import { Sheet, SheetHead } from "@/components/sheet";
 import { SyncLine } from "@/components/sync-line";
-import { useActivityBoard, useSession } from "@/lib/queries";
+import { isAccessExpired, useActivityBoard, useSession } from "@/lib/queries";
 
 /**
  * The Live page. Nothing here is asked for by hand: the board polls itself, and
@@ -54,7 +54,11 @@ export function LiveBoard() {
             watches on its own.
           </p>
         </div>
-        <SyncLine lastSyncedAt={data?.last_synced_at ?? null} failed={data?.failed ?? 0} />
+        <SyncLine
+          lastSyncedAt={data?.last_synced_at ?? null}
+          failed={data?.failed ?? 0}
+          expired={isAccessExpired(board.error)}
+        />
       </div>
 
       <LiveActivity items={data?.items ?? []} loading={board.isPending} title="On press" />

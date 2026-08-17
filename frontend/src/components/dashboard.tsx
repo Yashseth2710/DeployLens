@@ -14,6 +14,7 @@ import { SyncLine } from "@/components/sync-line";
 import { WindowControl, type WindowDays } from "@/components/window-control";
 import { formatDuration, formatWhen } from "@/lib/outcome";
 import {
+  isAccessExpired,
   useActivityBoard,
   useOverview,
   useRecentDeployments,
@@ -111,6 +112,7 @@ export function Dashboard() {
           <SyncLine
             lastSyncedAt={board.data?.last_synced_at ?? null}
             failed={board.data?.failed ?? 0}
+            expired={isAccessExpired(board.error)}
           />
           <WindowControl value={days} onChange={setDays} />
         </div>

@@ -22,6 +22,11 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     # against the GitHub API without TOKEN_ENCRYPTION_KEY.
     access_token_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # Present only when the OAuth app expires its tokens. Null means the access token
+    # never expires and there is nothing to refresh, which is the other valid shape.
+    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    access_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

@@ -44,13 +44,34 @@ def sync_repository(db: Session, repository: Repository, access_token: str) -> S
     # the runs above never mention the thing that actually shipped. GitHub records
     # those deployments regardless of who created them.
     provider = record_provider_deployments(
-        db, repository, github_api.list_deployments(access_token, repository.full_name)
+        db,
+        repository,
+        github_api.list_deployments(
+            access_token, repository.full_name, settled_ids=_settled_deployment_ids(db, repository)
+        ),
     )
     return SyncResult(
         runs_seen=result.runs_seen,
         runs_added=result.runs_added,
         deployments_added=result.deployments_added,
         provider_deployments=provider,
+    )
+
+
+# A deployment that succeeded or failed is finished with. Re-reading its status every
+# pass is what turned one repository into thirty one requests a sync.
+SETTLED_DEPLOY_STATES = ("success", "failure", "error", "inactive")
+
+
+def _settled_deployment_ids(db: Session, repository: Repository) -> frozenset[int]:
+    return frozenset(
+        db.scalars(
+            select(Deployment.github_deployment_id).where(
+                Deployment.repository_id == repository.id,
+                Deployment.github_deployment_id.is_not(None),
+                Deployment.status.in_(SETTLED_DEPLOY_STATES),
+            )
+        )
     )
 
 

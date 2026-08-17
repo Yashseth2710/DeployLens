@@ -151,6 +151,14 @@ export function useActivityBoard(enabled: boolean) {
 }
 
 /**
+ * A 401 from the board means the stored GitHub token was revoked or expired — the
+ * session is still fine, which is why this is distinct from being signed out.
+ */
+export function isAccessExpired(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
+}
+
+/**
  * Reads the board another component is already polling, without starting a second
  * loop of its own. The navigation wants the count, not the responsibility.
  */

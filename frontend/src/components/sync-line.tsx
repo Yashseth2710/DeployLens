@@ -1,5 +1,6 @@
 "use client";
 
+import { ButtonLink } from "@/components/button";
 import { cn } from "@/lib/cn";
 import { formatWhen } from "@/lib/outcome";
 
@@ -11,12 +12,29 @@ import { formatWhen } from "@/lib/outcome";
 export function SyncLine({
   lastSyncedAt,
   failed = 0,
+  expired = false,
   className,
 }: {
   lastSyncedAt: string | null;
   failed?: number;
+  /** GitHub refused the stored token. Nothing will arrive again until it is replaced,
+   *  so this is the one state that names its own remedy rather than a count. */
+  expired?: boolean;
   className?: string;
 }) {
+  if (expired) {
+    return (
+      <span className={cn("inline-flex flex-wrap items-center gap-x-3 gap-y-1", className)}>
+        <span className="label !text-hold !tracking-[0.08em]">
+          GitHub access expired · collection stopped
+        </span>
+        <ButtonLink href="/api/auth/github" variant="secondary" size="compact">
+          Sign in again
+        </ButtonLink>
+      </span>
+    );
+  }
+
   const broken = failed > 0;
 
   return (

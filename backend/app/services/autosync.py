@@ -4,22 +4,22 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.security import decrypt_token
 from app.models.repository import Repository
 from app.models.user import User
-from app.services import history_sync, workflow_sync
-from app.services.github_api import GitHubError
+from app.services import history_sync, tokens, workflow_sync
+from app.services.github_api import GitHubAuthExpiredError, GitHubError
 
 # How stale a repository is allowed to get before it is pulled again while somebody is
-# watching. Ten seconds is what an open page feels as its refresh rate, and it is short
-# enough that there is nothing left for a manual control to do.
+# watching. Five seconds is fast enough that a run appearing on GitHub and appearing here
+# feel like the same event.
 #
-# The cost is real and worth stating: each pass spends two GitHub requests per
-# repository for runs and deployments and a third for pull requests, so an open tab on
-# three repositories runs at roughly 3200 of the 5000 requests an hour a token is
-# allowed. Five repositories would exhaust it, and this is the number to raise when that
-# happens — commit stats are already on their own far longer window below.
-WATCHING_MAX_AGE = timedelta(seconds=10)
+# The cost is three requests per repository per pass — runs, deployments, pull requests —
+# which is only affordable because a deployment already recorded in a final state is
+# never re-read. That fix matters more than this number: without it a repository with
+# thirty deployments cost thirty one requests a pass and no window would have been safe.
+# At three requests, an open tab on two repositories spends about 4300 of the 5000 an
+# hour a token allows. A third repository needs this raised.
+WATCHING_MAX_AGE = timedelta(seconds=5)
 
 # The scheduled run has no browser watching it, so it refreshes everything it finds
 # rather than deciding what looks interesting.
@@ -27,8 +27,8 @@ CRON_MAX_AGE = timedelta(minutes=30)
 
 # A pull request changes state the instant somebody merges it, and a board showing a
 # merged one as open is wrong rather than merely late — so it runs at the same window as
-# everything else. This is the third request each pass spends per repository.
-PULL_REQUEST_MAX_AGE = timedelta(seconds=10)
+# everything else.
+PULL_REQUEST_MAX_AGE = timedelta(seconds=5)
 
 # Commit totals are weekly buckets that GitHub recomputes on its own schedule, so asking
 # more often than this reads the same numbers back.
@@ -67,12 +67,16 @@ def refresh_everyone(db: Session) -> RefreshReport:
     totals = RefreshReport(0, 0, 0, 0, 0, 0, None)
     for user in db.scalars(select(User)):
         try:
-            token = decrypt_token(user.access_token_encrypted)
-        except ValueError:
-            # A token we can no longer read is a sign-in problem for that user alone.
+            token = tokens.access_token_for(db, user)
+        except (ValueError, GitHubAuthExpiredError):
+            # A token we cannot read or renew is a sign-in problem for that user alone.
             continue
         repositories = list(db.scalars(select(Repository).where(Repository.user_id == user.id)))
-        totals = _add(totals, _refresh(db, repositories, token, max_age=CRON_MAX_AGE))
+        try:
+            totals = _add(totals, _refresh(db, repositories, token, max_age=CRON_MAX_AGE))
+        except GitHubAuthExpiredError:
+            # Only this user has to sign in again; the sweep collects for everybody else.
+            continue
     return totals
 
 
@@ -91,6 +95,11 @@ def _refresh(
             continue
         try:
             result = workflow_sync.sync_repository(db, repository, access_token)
+        except GitHubAuthExpiredError:
+            # Not a failure to count and retry: nothing will succeed until the user signs
+            # in again, and every pass until then would silently show stale data as live.
+            db.commit()
+            raise
         except GitHubError:
             # A rate limit or a repository that has since been deleted must not take the
             # rest of the sweep down with it; the next pass tries again.
@@ -110,6 +119,9 @@ def _refresh(
                 history = history_sync.sync_history(
                     db, repository, access_token, with_commits=with_commits
                 )
+            except GitHubAuthExpiredError:
+                db.commit()
+                raise
             except GitHubError:
                 continue
             pull_requests += history.pull_requests_seen
