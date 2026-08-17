@@ -22,7 +22,7 @@ from app.services.github_oauth import GitHubAccount, GitHubAuthError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-SIGNED_IN_PATH = "/repositories"
+SIGNED_IN_PATH = "/dashboard"
 SIGN_IN_PATH = "/"
 
 

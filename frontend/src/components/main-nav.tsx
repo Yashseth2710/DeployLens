@@ -6,7 +6,10 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { useSession } from "@/lib/queries";
 
-const LINKS = [{ href: "/repositories", label: "Repositories" }];
+const LINKS = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/repositories", label: "Repositories" },
+];
 
 /**
  * Navigation only appears once there is somewhere to go. A signed-out visitor

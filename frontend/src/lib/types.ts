@@ -34,4 +34,86 @@ export type SyncSummary = {
   runs_seen: number;
   runs_added: number;
   deployments_added: number;
+  provider_deployments: number;
+};
+
+export type DeploymentSummary = {
+  id: string;
+  repository_id: string;
+  repository_full_name: string;
+  environment: string;
+  status: string;
+  branch: string | null;
+  commit_sha: string | null;
+  author: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_seconds: number | null;
+  deployment_url: string | null;
+};
+
+export type DeliveryMetrics = {
+  deployments: number;
+  succeeded: number;
+  failed: number;
+  success_rate: number | null;
+  average_duration_seconds: number | null;
+  deployments_per_week: number;
+  last_deployment_at: string | null;
+};
+
+export type UptimeMetrics = {
+  monitored_urls: number;
+  probes: number;
+  up: number;
+  uptime_percent: number | null;
+  average_response_time_ms: number | null;
+};
+
+export type PipelineMetrics = {
+  runs: number;
+  succeeded: number;
+  failed: number;
+  success_rate: number | null;
+  average_duration_seconds: number | null;
+  workflows: number;
+  branches: number;
+  last_run_at: string | null;
+};
+
+export type WorkflowRunRow = {
+  id: string;
+  repository_id: string;
+  repository_full_name: string;
+  github_run_id: number;
+  workflow_name: string;
+  branch: string | null;
+  commit_sha: string | null;
+  status: string;
+  conclusion: string | null;
+  event: string | null;
+  actor: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_seconds: number | null;
+  html_url: string | null;
+};
+
+export type RepositoryMetrics = {
+  repository_id: string;
+  full_name: string;
+  delivery: DeliveryMetrics;
+  pipeline: PipelineMetrics;
+  uptime: UptimeMetrics;
+  health_score: number | null;
+};
+
+export type Overview = {
+  window_days: number;
+  connected_repositories: number;
+  delivery: DeliveryMetrics;
+  pipeline: PipelineMetrics;
+  uptime: UptimeMetrics;
+  health_score: number | null;
+  repositories: RepositoryMetrics[];
 };

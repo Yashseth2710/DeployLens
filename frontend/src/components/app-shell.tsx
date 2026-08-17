@@ -15,12 +15,14 @@ export function AppShell({ children, nav }: { children: ReactNode; nav?: ReactNo
   return (
     <div className="relative isolate flex min-h-dvh flex-col">
       <header className="border-rule border-b">
-        <div className="mx-auto flex w-full max-w-[76rem] items-center gap-4 px-5 py-4 sm:gap-6 sm:px-6">
+        <div className="mx-auto flex w-full max-w-[76rem] flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 sm:flex-nowrap sm:gap-x-6 sm:px-6">
           <Link href="/" className="rounded-sheet text-rank-c">
             <Wordmark />
           </Link>
-          <nav className="flex-1">{nav ?? <MainNav />}</nav>
-          <div className="flex shrink-0 items-center gap-4">
+          <nav className="order-3 w-full sm:order-none sm:w-auto sm:flex-1">
+            {nav ?? <MainNav />}
+          </nav>
+          <div className="ml-auto flex shrink-0 items-center gap-4 sm:ml-0">
             <AccountBar />
             <ThemeToggle />
           </div>

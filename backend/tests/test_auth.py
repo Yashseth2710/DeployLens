@@ -54,7 +54,7 @@ def test_callback_stores_the_account_and_opens_a_session(
     response = sign_in(client)
 
     assert response.status_code == 307
-    assert response.headers["location"].endswith("/repositories")
+    assert response.headers["location"].endswith("/dashboard")
     assert SESSION_COOKIE in client.cookies
 
     user = db.scalar(select(User).where(User.github_id == ACCOUNT["id"]))

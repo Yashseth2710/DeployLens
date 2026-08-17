@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.health import HealthCheck, HealthResult
 from app.models.repository import Repository
 from app.models.user import User
-from app.models.workflow import Deployment
+from app.models.workflow import Deployment, WorkflowRun
 from app.services import metrics
 from app.services.metrics import DeliveryMetrics, UptimeMetrics
 
@@ -155,9 +155,10 @@ def test_the_score_blends_delivery_and_uptime(
 
     body = client.get("/api/analytics/overview", params={"days": 7}).json()
 
-    # 50% success, 80% uptime, 2 deploys a week against a target of 3:
-    # 0.5(50) + 0.3(80) + 0.2(66.7) = 62.3
-    assert body["health_score"] == 62
+    # 50% deploy success, 80% uptime, 2 deploys a week against a target of 3, and no
+    # workflow runs at all, so the runs component drops and the rest renormalise:
+    # (0.35(50) + 0.25(80) + 0.15(66.7)) / 0.75 = 63.3
+    assert body["health_score"] == 63
 
 
 def test_a_repository_with_nothing_recorded_has_no_score(
@@ -237,6 +238,7 @@ def test_another_users_data_is_never_counted(
 def test_the_window_is_bounded(client: TestClient, signed_in: User):
     assert client.get("/api/analytics/overview", params={"days": 0}).status_code == 422
     assert client.get("/api/analytics/overview", params={"days": 400}).status_code == 422
+    assert client.get("/api/analytics/overview", params={"days": 365}).status_code == 200
 
 
 def test_analytics_need_a_session(client: TestClient):
@@ -258,4 +260,34 @@ def test_the_score_renormalises_when_a_component_is_missing():
     half_up = UptimeMetrics(1, 10, 5, 50.0, 200)
 
     assert metrics.health_score(delivery, no_probes) == 100
-    assert metrics.health_score(delivery, half_up) == 85
+    # (0.35(100) + 0.25(50) + 0.15(100)) / 0.75 = 83.3
+    assert metrics.health_score(delivery, half_up) == 83
+
+
+def test_a_project_with_runs_but_no_deploys_is_still_scored(
+    client: TestClient, db: Session, signed_in: User, repository: Repository
+):
+    """Most side projects deploy through a provider integration rather than an Actions
+    workflow. Their CI still says whether delivery is healthy, and scoring them as
+    unmeasurable would leave the dashboard blank for the common case."""
+    for index in range(10):
+        db.add(
+            WorkflowRun(
+                repository_id=repository.id,
+                github_run_id=5000 + index,
+                workflow_name="CI",
+                branch="main",
+                status="completed",
+                conclusion="failure" if index < 2 else "success",
+                started_at=NOW - timedelta(hours=index),
+            )
+        )
+    db.flush()
+
+    body = client.get("/api/analytics/overview", params={"days": 7}).json()
+
+    assert body["pipeline"]["runs"] == 10
+    assert body["pipeline"]["success_rate"] == 80.0
+    assert body["delivery"]["deployments"] == 0
+    # Runs are the only component with data, so the score is exactly their pass rate.
+    assert body["health_score"] == 80

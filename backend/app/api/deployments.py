@@ -65,4 +65,5 @@ def _summary(deployment: Deployment, repository_full_name: str) -> dict[str, Any
         "started_at": deployment.started_at,
         "completed_at": deployment.completed_at,
         "duration_seconds": deployment.duration_seconds,
+        "deployment_url": deployment.deployment_url,
     }

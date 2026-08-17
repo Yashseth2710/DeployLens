@@ -22,10 +22,22 @@ class UptimeMetricsOut(BaseModel):
     average_response_time_ms: int | None
 
 
+class PipelineMetricsOut(BaseModel):
+    runs: int
+    succeeded: int
+    failed: int
+    success_rate: float | None
+    average_duration_seconds: int | None
+    workflows: int
+    branches: int
+    last_run_at: datetime | None
+
+
 class RepositoryMetricsOut(BaseModel):
     repository_id: UUID
     full_name: str
     delivery: DeliveryMetricsOut
+    pipeline: PipelineMetricsOut
     uptime: UptimeMetricsOut
     health_score: int | None
 
@@ -49,6 +61,7 @@ class OverviewOut(BaseModel):
     window_days: int
     connected_repositories: int
     delivery: DeliveryMetricsOut
+    pipeline: PipelineMetricsOut
     uptime: UptimeMetricsOut
     health_score: int | None
     repositories: list[RepositoryMetricsOut]

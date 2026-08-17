@@ -6,14 +6,20 @@ import { api, ApiError } from "@/lib/api";
 import type {
   AvailableRepository,
   ConnectedRepository,
+  DeploymentSummary,
+  Overview,
   SyncSummary,
   UserProfile,
+  WorkflowRunRow,
 } from "@/lib/types";
 
 export const keys = {
   session: ["session"] as const,
   available: ["repositories", "available"] as const,
   connected: ["repositories", "connected"] as const,
+  overview: (days: number) => ["analytics", "overview", days] as const,
+  deployments: (limit: number) => ["deployments", limit] as const,
+  runs: (limit: number) => ["runs", limit] as const,
 };
 
 export function useSession() {
@@ -89,5 +95,41 @@ export function useSignOut() {
   return useMutation({
     mutationFn: () => api<void>("/api/auth/logout", { method: "POST" }),
     onSuccess: () => client.clear(),
+  });
+}
+
+export function useOverview(days: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.overview(days),
+    queryFn: () => api<Overview>(`/api/analytics/overview?days=${days}`),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * One request for every repository's recent deploys, grouped on the client. The
+ * alternative is a request per project, and the dashboard would then wake the
+ * database once per card.
+ */
+export function useRecentDeployments(limit: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.deployments(limit),
+    queryFn: () => api<DeploymentSummary[]>(`/api/deployments?limit=${limit}`),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * Every Actions run, not only the ones that shipped. This is what the activity
+ * feed reads: a failing test on a pull request is delivery information too.
+ */
+export function useRecentRuns(limit: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.runs(limit),
+    queryFn: () => api<WorkflowRunRow[]>(`/api/runs?limit=${limit}`),
+    enabled,
+    retry: false,
   });
 }

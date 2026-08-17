@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.repository import Repository
 from app.models.workflow import Deployment, WorkflowRun
 from app.services import github_api
-from app.services.github_api import GitHubWorkflowRun
+from app.services.github_api import GitHubDeployment, GitHubWorkflowRun
 
 # A repository's runs are mostly tests and linting. Only the ones whose workflow is
 # named for shipping count as deployments, so reliability metrics measure releases
@@ -26,6 +26,7 @@ class SyncResult:
     runs_seen: int
     runs_added: int
     deployments_added: int
+    provider_deployments: int
 
 
 def sync_repository(db: Session, repository: Repository, access_token: str) -> SyncResult:
@@ -37,12 +38,62 @@ def sync_repository(db: Session, repository: Repository, access_token: str) -> S
     pages = REFRESH_PAGES if known else FIRST_SYNC_PAGES
 
     runs = github_api.list_workflow_runs(access_token, repository.full_name, pages=pages)
-    return record_runs(db, repository, runs)
+    result = record_runs(db, repository, runs)
+
+    # Most projects deploy through a provider integration rather than a workflow, so
+    # the runs above never mention the thing that actually shipped. GitHub records
+    # those deployments regardless of who created them.
+    provider = record_provider_deployments(
+        db, repository, github_api.list_deployments(access_token, repository.full_name)
+    )
+    return SyncResult(
+        runs_seen=result.runs_seen,
+        runs_added=result.runs_added,
+        deployments_added=result.deployments_added,
+        provider_deployments=provider,
+    )
+
+
+def record_provider_deployments(
+    db: Session, repository: Repository, deployments: list[GitHubDeployment]
+) -> int:
+    """Keyed on GitHub's deployment id, so a redeploy of the same commit is its own
+    row and a resync updates rather than duplicates."""
+    if not deployments:
+        return 0
+
+    for deployment in deployments:
+        values = {
+            "repository_id": repository.id,
+            "github_deployment_id": deployment.github_deployment_id,
+            "environment": deployment.environment[:50],
+            "status": deployment.state,
+            "branch": deployment.ref,
+            "commit_sha": deployment.commit_sha,
+            "author": deployment.creator,
+            "started_at": deployment.created_at,
+            "completed_at": deployment.updated_at,
+            "duration_seconds": duration_of(deployment.created_at, deployment.updated_at),
+            "deployment_url": deployment.deployment_url,
+        }
+        db.execute(
+            insert(Deployment)
+            .values(**values)
+            .on_conflict_do_update(
+                constraint="uq_deployments_repo_github_id",
+                set_={
+                    key: values[key]
+                    for key in ("status", "completed_at", "duration_seconds", "deployment_url")
+                },
+            )
+        )
+    db.commit()
+    return len(deployments)
 
 
 def record_runs(db: Session, repository: Repository, runs: list[GitHubWorkflowRun]) -> SyncResult:
     if not runs:
-        return SyncResult(runs_seen=0, runs_added=0, deployments_added=0)
+        return SyncResult(runs_seen=0, runs_added=0, deployments_added=0, provider_deployments=0)
 
     before = _counts(db, repository.id)
     for run in runs:
@@ -56,6 +107,7 @@ def record_runs(db: Session, repository: Repository, runs: list[GitHubWorkflowRu
         runs_seen=len(runs),
         runs_added=after[0] - before[0],
         deployments_added=after[1] - before[1],
+        provider_deployments=0,
     )
 
 
@@ -74,6 +126,8 @@ def _upsert_run(db: Session, repository: Repository, run: GitHubWorkflowRun) -> 
         "commit_sha": run.commit_sha,
         "status": run.status,
         "conclusion": run.conclusion,
+        "event": run.event,
+        "actor": run.actor,
         "started_at": run.started_at,
         "completed_at": run.completed_at,
         "duration_seconds": duration_of(run.started_at, run.completed_at),
@@ -85,8 +139,17 @@ def _upsert_run(db: Session, repository: Repository, run: GitHubWorkflowRun) -> 
         .on_conflict_do_update(
             constraint="uq_workflow_runs_repo_run",
             set_={
+                # event and actor are refreshed too, so a resync backfills rows that
+                # were ingested before those columns existed.
                 key: values[key]
-                for key in ("status", "conclusion", "completed_at", "duration_seconds")
+                for key in (
+                    "status",
+                    "conclusion",
+                    "completed_at",
+                    "duration_seconds",
+                    "event",
+                    "actor",
+                )
             },
         )
         .returning(WorkflowRun.id)

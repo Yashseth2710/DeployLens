@@ -159,7 +159,8 @@ function RepositoryRow({ repository }: { repository: AvailableRepository }) {
       <div className="ml-auto flex items-center gap-3">
         {connect.data?.summary ? (
           <span className="label !tracking-[0.08em]">
-            {connect.data.summary.runs_added} runs pulled
+            {connect.data.summary.runs_added} runs · {connect.data.summary.provider_deployments}{" "}
+            deploys pulled
           </span>
         ) : null}
 

@@ -9,18 +9,20 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.health import HealthCheck, HealthResult
 from app.models.repository import Repository
-from app.models.workflow import Deployment
+from app.models.workflow import Deployment, WorkflowRun
 
 # A cancelled or skipped run says nothing about whether the pipeline works, so the
 # success rate is computed over decided outcomes only.
 SUCCEEDED = ("success",)
-FAILED = ("failure", "timed_out", "startup_failure")
+FAILED = ("failure", "timed_out", "startup_failure", "error")
 
 # Three deployments a week is the point where shipping looks continuous rather than
 # occasional. Anything at or above it scores full marks for frequency.
 TARGET_PER_WEEK = 3.0
 
-WEIGHTS = {"success": 0.5, "uptime": 0.3, "frequency": 0.2}
+# Deploy outcomes carry the most weight, but a project with CI and no release
+# workflow is not unmeasurable: its runs are the delivery signal it does have.
+WEIGHTS = {"deploys": 0.35, "runs": 0.25, "uptime": 0.25, "frequency": 0.15}
 
 
 @dataclass(frozen=True)
@@ -50,10 +52,30 @@ EMPTY_UPTIME = UptimeMetrics(0, 0, 0, None, None)
 
 
 @dataclass(frozen=True)
+class PipelineMetrics:
+    """Every Actions run, not only the ones that shipped. A pull request whose tests
+    fail never becomes a deployment, but it is the thing a developer most wants to
+    see, so it is measured separately rather than filtered away."""
+
+    runs: int
+    succeeded: int
+    failed: int
+    success_rate: float | None
+    average_duration_seconds: int | None
+    workflows: int
+    branches: int
+    last_run_at: datetime | None
+
+
+EMPTY_PIPELINE = PipelineMetrics(0, 0, 0, None, None, 0, 0, None)
+
+
+@dataclass(frozen=True)
 class RepositoryMetrics:
     repository_id: UUID
     full_name: str
     delivery: DeliveryMetrics
+    pipeline: PipelineMetrics
     uptime: UptimeMetrics
     health_score: int | None
 
@@ -75,15 +97,21 @@ class UptimePoint:
     uptime_percent: float
 
 
-def health_score(delivery: DeliveryMetrics, uptime: UptimeMetrics) -> int | None:
-    """A weighted blend of how often deploys succeed, how often the app answers, and
-    how regularly anything ships.
+def health_score(
+    delivery: DeliveryMetrics,
+    uptime: UptimeMetrics,
+    pipeline: PipelineMetrics | None = None,
+) -> int | None:
+    """A weighted blend of how often deploys succeed, how often runs pass, how often
+    the app answers, and how regularly anything ships.
 
     Components with no data are dropped and the remaining weights renormalised, so a
-    project that has not configured a health check is not scored as if it were down.
+    project with no health check is not scored as if it were down, and one with no
+    release workflow is still scored on the runs it does have.
     """
     components = {
-        "success": delivery.success_rate,
+        "deploys": delivery.success_rate,
+        "runs": pipeline.success_rate if pipeline else None,
         "uptime": uptime.uptime_percent,
         "frequency": min(delivery.deployments_per_week / TARGET_PER_WEEK, 1.0) * 100
         if delivery.deployments
@@ -177,6 +205,39 @@ def _uptime_from(
     )
 
 
+def pipeline_metrics(db: Session, repository_ids: list[UUID], days: int) -> PipelineMetrics:
+    if not repository_ids:
+        return EMPTY_PIPELINE
+
+    row = db.execute(
+        select(
+            func.count(WorkflowRun.id),
+            func.count(case((WorkflowRun.conclusion.in_(SUCCEEDED), 1))),
+            func.count(case((WorkflowRun.conclusion.in_(FAILED), 1))),
+            func.avg(WorkflowRun.duration_seconds),
+            func.count(func.distinct(WorkflowRun.workflow_name)),
+            func.count(func.distinct(WorkflowRun.branch)),
+            func.max(WorkflowRun.started_at),
+        ).where(
+            WorkflowRun.repository_id.in_(repository_ids),
+            WorkflowRun.started_at >= _cutoff(days),
+        )
+    ).one()
+
+    runs, succeeded, failed, average, workflows, branches, last_run = row
+    decided = succeeded + failed
+    return PipelineMetrics(
+        runs=runs,
+        succeeded=succeeded,
+        failed=failed,
+        success_rate=round(succeeded / decided * 100, 1) if decided else None,
+        average_duration_seconds=round(average) if average else None,
+        workflows=workflows,
+        branches=branches,
+        last_run_at=last_run,
+    )
+
+
 def per_repository(db: Session, user_id: UUID, days: int) -> list[RepositoryMetrics]:
     """Three grouped queries rather than two per repository. The dashboard asks for
     this on every load, and each round trip is one more thing Neon has to wake for."""
@@ -191,18 +252,23 @@ def per_repository(db: Session, user_id: UUID, days: int) -> list[RepositoryMetr
     ids = [repository_id for repository_id, _ in repositories]
     delivery_by_repository = _delivery_by_repository(db, ids, days)
     uptime_by_repository = _uptime_by_repository(db, ids, days)
+    pipeline_by_repository = {
+        repository_id: pipeline_metrics(db, [repository_id], days) for repository_id in ids
+    }
 
     metrics = []
     for repository_id, full_name in repositories:
         delivery = delivery_by_repository.get(repository_id, EMPTY_DELIVERY)
         uptime = uptime_by_repository.get(repository_id, EMPTY_UPTIME)
+        pipeline = pipeline_by_repository.get(repository_id, EMPTY_PIPELINE)
         metrics.append(
             RepositoryMetrics(
                 repository_id=repository_id,
                 full_name=full_name,
                 delivery=delivery,
+                pipeline=pipeline,
                 uptime=uptime,
-                health_score=health_score(delivery, uptime),
+                health_score=health_score(delivery, uptime, pipeline),
             )
         )
     return metrics

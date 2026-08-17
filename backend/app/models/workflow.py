@@ -46,6 +46,12 @@ class WorkflowRun(Base, PrimaryKeyMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     conclusion: Mapped[str | None] = mapped_column(String(30))
 
+    # What triggered the run: push, pull_request, schedule, workflow_dispatch. Kept
+    # because "did CI pass on the PR" and "did the push to main build" are different
+    # questions, and only this column can tell them apart.
+    event: Mapped[str | None] = mapped_column(String(40))
+    actor: Mapped[str | None] = mapped_column(String(255))
+
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Denormalised from the timestamps so duration averages do not recompute per row.
@@ -66,8 +72,18 @@ class Deployment(Base, PrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "deployments"
     __table_args__ = (
+        # A provider deployment is keyed on GitHub's id so a resync updates it; runs
+        # that shipped through Actions have no such id and key on the run instead.
+        UniqueConstraint(
+            "repository_id", "github_deployment_id", name="uq_deployments_repo_github_id"
+        ),
         Index("ix_deployments_repo_started", "repository_id", text("started_at DESC")),
     )
+
+    # Set when the deployment came from GitHub's Deployments API, which is where
+    # Vercel, Netlify and friends record what they shipped. Null for deployments
+    # inferred from an Actions workflow.
+    github_deployment_id: Mapped[int | None] = mapped_column(BigInteger)
 
     repository_id: Mapped[UUID] = mapped_column(
         ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False
