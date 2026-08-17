@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Select, case, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.health import HealthCheck, HealthResult
@@ -78,6 +78,21 @@ class RepositoryMetrics:
     pipeline: PipelineMetrics
     uptime: UptimeMetrics
     health_score: int | None
+
+
+@dataclass(frozen=True)
+class RunGroup:
+    """Runs gathered under one name — a workflow, or a branch. The detail page reads
+    both from the same shape, because the question is the same either way: what keeps
+    failing, and what takes the longest."""
+
+    name: str
+    runs: int
+    succeeded: int
+    failed: int
+    success_rate: float | None
+    average_duration_seconds: int | None
+    last_run_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -328,6 +343,56 @@ def _uptime_by_repository(
     for repository_id, urls in enabled_urls.items():
         measured.setdefault(repository_id, UptimeMetrics(urls, 0, 0, None, None))
     return measured
+
+
+def run_groups(
+    db: Session, repository_id: UUID, days: int, by: InstrumentedAttribute[Any], limit: int = 20
+) -> list[RunGroup]:
+    """Busiest first, so a repository with fifty branches still leads with the ones
+    worth reading. Runs with no branch recorded are left out rather than collected
+    under an invented name."""
+    rows = db.execute(
+        select(
+            by,
+            func.count(WorkflowRun.id),
+            func.count(case((WorkflowRun.conclusion.in_(SUCCEEDED), 1))),
+            func.count(case((WorkflowRun.conclusion.in_(FAILED), 1))),
+            func.avg(WorkflowRun.duration_seconds),
+            func.max(WorkflowRun.started_at),
+        )
+        .where(
+            WorkflowRun.repository_id == repository_id,
+            WorkflowRun.started_at >= _cutoff(days),
+            by.is_not(None),
+        )
+        .group_by(by)
+        .order_by(func.count(WorkflowRun.id).desc(), by)
+        .limit(limit)
+    ).all()
+
+    groups = []
+    for name, runs, succeeded, failed, average, last_run in rows:
+        decided = succeeded + failed
+        groups.append(
+            RunGroup(
+                name=name,
+                runs=runs,
+                succeeded=succeeded,
+                failed=failed,
+                success_rate=round(succeeded / decided * 100, 1) if decided else None,
+                average_duration_seconds=round(average) if average else None,
+                last_run_at=last_run,
+            )
+        )
+    return groups
+
+
+def first_activity_at(db: Session, repository_id: UUID) -> datetime | None:
+    """The oldest run held for this repository, whatever the window. It is how the page
+    says how far back it can actually see, rather than implying it holds everything."""
+    return db.scalar(
+        select(func.min(WorkflowRun.started_at)).where(WorkflowRun.repository_id == repository_id)
+    )
 
 
 def deployment_series(db: Session, repository_ids: list[UUID], days: int) -> list[DeploymentPoint]:

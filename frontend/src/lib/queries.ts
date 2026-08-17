@@ -8,6 +8,7 @@ import type {
   ConnectedRepository,
   DeploymentSummary,
   Overview,
+  RepositoryDetail,
   SyncSummary,
   UserProfile,
   WorkflowRunRow,
@@ -18,8 +19,10 @@ export const keys = {
   available: ["repositories", "available"] as const,
   connected: ["repositories", "connected"] as const,
   overview: (days: number) => ["analytics", "overview", days] as const,
-  deployments: (limit: number) => ["deployments", limit] as const,
-  runs: (limit: number) => ["runs", limit] as const,
+  repository: (id: string, days: number) => ["analytics", "repository", id, days] as const,
+  deployments: (limit: number, repositoryId?: string) =>
+    ["deployments", limit, repositoryId ?? "all"] as const,
+  runs: (limit: number, repositoryId?: string) => ["runs", limit, repositoryId ?? "all"] as const,
 };
 
 export function useSession() {
@@ -112,10 +115,24 @@ export function useOverview(days: number, enabled: boolean) {
  * alternative is a request per project, and the dashboard would then wake the
  * database once per card.
  */
-export function useRecentDeployments(limit: number, enabled: boolean) {
+export function useRecentDeployments(limit: number, enabled: boolean, repositoryId?: string) {
   return useQuery({
-    queryKey: keys.deployments(limit),
-    queryFn: () => api<DeploymentSummary[]>(`/api/deployments?limit=${limit}`),
+    queryKey: keys.deployments(limit, repositoryId),
+    queryFn: () => api<DeploymentSummary[]>(`/api/deployments?${scoped(limit, repositoryId)}`),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * One repository read on its own, with the workflow and branch breakdowns that
+ * only mean anything at this scale.
+ */
+export function useRepositoryDetail(repositoryId: string, days: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.repository(repositoryId, days),
+    queryFn: () =>
+      api<RepositoryDetail>(`/api/analytics/repositories/${repositoryId}?days=${days}`),
     enabled,
     retry: false,
   });
@@ -125,11 +142,17 @@ export function useRecentDeployments(limit: number, enabled: boolean) {
  * Every Actions run, not only the ones that shipped. This is what the activity
  * feed reads: a failing test on a pull request is delivery information too.
  */
-export function useRecentRuns(limit: number, enabled: boolean) {
+export function useRecentRuns(limit: number, enabled: boolean, repositoryId?: string) {
   return useQuery({
-    queryKey: keys.runs(limit),
-    queryFn: () => api<WorkflowRunRow[]>(`/api/runs?limit=${limit}`),
+    queryKey: keys.runs(limit, repositoryId),
+    queryFn: () => api<WorkflowRunRow[]>(`/api/runs?${scoped(limit, repositoryId)}`),
     enabled,
     retry: false,
   });
+}
+
+function scoped(limit: number, repositoryId?: string): string {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (repositoryId) query.set("repository_id", repositoryId);
+  return query.toString();
 }
