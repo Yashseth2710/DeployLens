@@ -6,12 +6,14 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, GitHubToken
 from app.models.repository import Repository
+from app.schemas.deployment import SyncSummary
 from app.schemas.repository import (
     AvailableRepository,
     ConnectedRepository,
     ConnectRepositoryRequest,
 )
-from app.services import github_api
+from app.services import github_api, workflow_sync
+from app.services.workflow_sync import SyncResult
 
 router = APIRouter(prefix="/api/repositories", tags=["repositories"])
 
@@ -66,6 +68,17 @@ def connect(
     db.commit()
     db.refresh(repository)
     return repository
+
+
+@router.post("/{repository_id}/sync", response_model=SyncSummary)
+def sync(repository_id: UUID, user: CurrentUser, db: DbSession, token: GitHubToken) -> SyncResult:
+    """Pulls Actions runs for one repository. Safe to call repeatedly - runs are keyed
+    on their GitHub id, so a second pass updates rather than duplicates."""
+    repository = _owned(db, user.id, repository_id=repository_id)
+    if repository is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such connected repository")
+
+    return workflow_sync.sync_repository(db, repository, token)
 
 
 @router.delete("/{repository_id}", status_code=status.HTTP_204_NO_CONTENT)

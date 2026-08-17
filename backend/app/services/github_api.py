@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -39,6 +40,21 @@ class GitHubRepository:
     github_url: str
     private: bool
     pushed_at: str | None
+
+
+@dataclass(frozen=True)
+class GitHubWorkflowRun:
+    github_run_id: int
+    workflow_name: str
+    branch: str | None
+    commit_sha: str | None
+    status: str
+    conclusion: str | None
+    event: str
+    actor: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    html_url: str | None
 
 
 @contextmanager
@@ -86,6 +102,50 @@ def get_repository(access_token: str, github_repo_id: int) -> GitHubRepository:
     cannot claim a repository the token has no access to."""
     with client(access_token) as http:
         return as_repository(get(http, f"/repositories/{github_repo_id}"))
+
+
+def list_workflow_runs(
+    access_token: str, full_name: str, pages: int = 1
+) -> list[GitHubWorkflowRun]:
+    """Newest first, which is the order GitHub returns. One page of 100 is enough to
+    keep an existing repository current; a first connect asks for more."""
+    runs: list[GitHubWorkflowRun] = []
+    with client(access_token) as http:
+        for page in range(1, min(pages, MAX_PAGES) + 1):
+            payload = get(http, f"/repos/{full_name}/actions/runs", per_page=PER_PAGE, page=page)
+            batch = payload.get("workflow_runs", [])
+            runs.extend(as_workflow_run(item) for item in batch)
+            if len(batch) < PER_PAGE:
+                break
+    return runs
+
+
+def as_workflow_run(payload: dict[str, Any]) -> GitHubWorkflowRun:
+    conclusion = payload.get("conclusion")
+    return GitHubWorkflowRun(
+        github_run_id=payload["id"],
+        workflow_name=payload.get("name") or "Workflow",
+        branch=payload.get("head_branch"),
+        commit_sha=payload.get("head_sha"),
+        status=payload.get("status") or "queued",
+        conclusion=conclusion,
+        event=payload.get("event") or "",
+        actor=(payload.get("actor") or {}).get("login"),
+        started_at=_timestamp(payload.get("run_started_at") or payload.get("created_at")),
+        # GitHub reports no completion time of its own; updated_at is the last thing
+        # that happened to the run, which for a finished run is it finishing.
+        completed_at=_timestamp(payload.get("updated_at")) if conclusion else None,
+        html_url=payload.get("html_url"),
+    )
+
+
+def _timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def as_repository(payload: dict[str, Any]) -> GitHubRepository:
