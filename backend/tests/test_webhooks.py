@@ -72,6 +72,16 @@ def deliver(client: TestClient, payload: dict, *, delivery: str, event: str = "w
     )
 
 
+def _only_run(db: Session, repository: Repository) -> WorkflowRun:
+    """Scoped to this test's own repository. The suite runs against a database that
+    already holds real runs, so a bare select reads someone else's history."""
+    return db.scalar(select(WorkflowRun).where(WorkflowRun.repository_id == repository.id))
+
+
+def _events(db: Session, delivery: str) -> list[WebhookEvent]:
+    return list(db.scalars(select(WebhookEvent).where(WebhookEvent.github_delivery_id == delivery)))
+
+
 def test_a_completed_run_arrives_as_a_deployment(
     client: TestClient, db: Session, repository: Repository
 ):
@@ -98,8 +108,8 @@ def test_a_redelivered_event_changes_nothing(
     repeat = deliver(client, workflow_run_event(conclusion="failure"), delivery="d-2")
 
     assert repeat.json() == {"result": "duplicate"}
-    assert db.scalar(select(WorkflowRun)).conclusion == "success"
-    assert len(db.scalars(select(WebhookEvent)).all()) == 1
+    assert _only_run(db, repository).conclusion == "success"
+    assert len(_events(db, "d-2")) == 1
 
 
 def test_a_later_delivery_for_the_same_run_updates_it(
@@ -120,7 +130,7 @@ def test_the_raw_payload_is_kept_for_replay(
 ):
     deliver(client, workflow_run_event(), delivery="d-5")
 
-    event = db.scalar(select(WebhookEvent))
+    event = _events(db, "d-5")[0]
     assert event.github_delivery_id == "d-5"
     assert event.event_type == "workflow_run"
     assert event.repository_id == repository.id
@@ -140,7 +150,7 @@ def test_a_forged_signature_is_refused(client: TestClient, db: Session, reposito
     )
 
     assert response.status_code == 401
-    assert db.scalar(select(WebhookEvent)) is None
+    assert _events(db, "d-6") == []
 
 
 def test_an_unsigned_delivery_is_refused(client: TestClient, repository: Repository):
@@ -178,7 +188,7 @@ def test_a_ping_is_answered_without_being_stored(client: TestClient, db: Session
     response = deliver(client, {"zen": "Design for failure."}, delivery="d-9", event="ping")
 
     assert response.json() == {"result": "pong"}
-    assert db.scalar(select(WebhookEvent)) is None
+    assert _events(db, "d-9") == []
 
 
 def test_an_event_we_do_not_act_on_is_still_kept(

@@ -3,11 +3,13 @@ import socket
 import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.database.session import SessionLocal
 from app.models.health import HealthCheck, HealthResult
 
 # One invocation has to finish inside the serverless timeout, so the batch is capped and
@@ -35,23 +37,40 @@ class ProbeRun:
 
 def run_due_probes(db: Session) -> ProbeRun:
     checks = due_checks(db)
-    up = 0
-    for check in checks:
-        outcome = probe(check.url, check.expected_status)
-        db.add(
-            HealthResult(
-                health_check_id=check.id,
-                status=outcome.status,
-                status_code=outcome.status_code,
-                response_time_ms=outcome.response_time_ms,
-                error_message=outcome.error_message,
-            )
-        )
-        up += outcome.status == "up"
+    up = sum(record_probe(db, check).status == "up" for check in checks)
     pruned = prune_old_results(db)
     db.commit()
 
     return ProbeRun(checked=len(checks), up=up, down=len(checks) - up, pruned=pruned)
+
+
+def probe_once(check_id: UUID) -> None:
+    """Probe a single check off the schedule, after the response has gone out.
+
+    An endpoint added a moment ago would otherwise read as unmeasured until the hourly
+    runner came round, which looks like the URL was never accepted. Its own session,
+    because the request that created the check has closed by the time this runs.
+    """
+    with SessionLocal() as db:
+        check = db.get(HealthCheck, check_id)
+        if check is None or not check.enabled:
+            return
+        record_probe(db, check)
+        db.commit()
+
+
+def record_probe(db: Session, check: HealthCheck) -> ProbeOutcome:
+    outcome = probe(check.url, check.expected_status)
+    db.add(
+        HealthResult(
+            health_check_id=check.id,
+            status=outcome.status,
+            status_code=outcome.status_code,
+            response_time_ms=outcome.response_time_ms,
+            error_message=outcome.error_message,
+        )
+    )
+    return outcome
 
 
 def due_checks(db: Session) -> list[HealthCheck]:

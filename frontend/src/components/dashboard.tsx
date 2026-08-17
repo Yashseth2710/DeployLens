@@ -168,8 +168,8 @@ export function Dashboard() {
             unit="%"
             sample={
               uptime.monitored_urls > 0
-                ? `${uptime.monitored_urls} url${uptime.monitored_urls === 1 ? "" : "s"} · ${uptime.probes} probes`
-                : "no endpoint monitored"
+                ? `${uptime.monitored_urls} url${uptime.monitored_urls === 1 ? "" : "s"} · ${uptime.probes} read${uptime.probes === 1 ? "" : "s"}`
+                : "set one on a project"
             }
             absent="not monitored"
           />

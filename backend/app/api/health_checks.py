@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession
@@ -13,6 +13,7 @@ from app.schemas.health import (
     HealthCheckUpdate,
     HealthResultOut,
 )
+from app.services import probes
 
 router = APIRouter(prefix="/api/health-checks", tags=["health"])
 
@@ -37,7 +38,9 @@ def list_checks(
 
 
 @router.post("", response_model=HealthCheckOut, status_code=status.HTTP_201_CREATED)
-def create_check(payload: HealthCheckCreate, user: CurrentUser, db: DbSession) -> HealthCheck:
+def create_check(
+    payload: HealthCheckCreate, user: CurrentUser, db: DbSession, background: BackgroundTasks
+) -> HealthCheck:
     repository_id = payload.repository_id
     if _repository(db, user.id, repository_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such connected repository")
@@ -60,6 +63,9 @@ def create_check(payload: HealthCheckCreate, user: CurrentUser, db: DbSession) -
     db.add(check)
     db.commit()
     db.refresh(check)
+    # Probed straight away, so the endpoint reports within seconds instead of reading as
+    # unmeasured until the hourly runner comes round.
+    background.add_task(probes.probe_once, check.id)
     return check
 
 
@@ -85,7 +91,11 @@ def list_results(
 
 @router.patch("/{check_id}", response_model=HealthCheckOut)
 def update_check(
-    check_id: UUID, payload: HealthCheckUpdate, user: CurrentUser, db: DbSession
+    check_id: UUID,
+    payload: HealthCheckUpdate,
+    user: CurrentUser,
+    db: DbSession,
+    background: BackgroundTasks,
 ) -> HealthCheck:
     check = _owned(db, user.id, check_id)
     if check is None:
@@ -99,6 +109,10 @@ def update_check(
         setattr(check, field, value)
     db.commit()
     db.refresh(check)
+    # A corrected URL is one nobody has measured yet, so it is read now rather than
+    # left reporting the old address's failure for another hour.
+    if "url" in changes:
+        background.add_task(probes.probe_once, check.id)
     return check
 
 

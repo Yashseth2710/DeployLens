@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { ButtonLink } from "@/components/button";
+import { EndpointMonitor } from "@/components/endpoint-monitor";
 import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
 import { PullRequestList } from "@/components/pull-request-list";
@@ -189,8 +190,8 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
             unit="%"
             sample={
               uptime.monitored_urls > 0
-                ? `${uptime.probes} probes · ${uptime.average_response_time_ms ?? "—"} ms`
-                : "no endpoint monitored"
+                ? `${uptime.probes} read${uptime.probes === 1 ? "" : "s"} · ${uptime.average_response_time_ms ?? "—"} ms`
+                : "name an endpoint below"
             }
             absent="not monitored"
           />
@@ -237,6 +238,8 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
           </div>
         ) : null}
       </Sheet>
+
+      <EndpointMonitor repositoryId={repositoryId} />
 
       <div className="grid gap-8 lg:grid-cols-2">
         <GroupSheet

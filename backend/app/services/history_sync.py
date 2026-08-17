@@ -35,6 +35,12 @@ def plan(db: Session, repository: Repository) -> int:
 
 
 def fetch(access_token: str, full_name: str, pages: int, with_commits: bool) -> HistoryPayload:
+    """Pull requests every pass, commit totals only when asked for.
+
+    They answer at different speeds: a merge has to appear promptly or the board is
+    simply wrong, while a year of weekly commit counts is the same year it was a
+    minute ago.
+    """
     return HistoryPayload(
         pull_requests=github_api.list_pull_requests(access_token, full_name, pages=pages),
         commit_weeks=github_api.commit_activity(access_token, full_name) if with_commits else [],
@@ -49,31 +55,6 @@ def record(db: Session, repository: Repository, payload: HistoryPayload) -> Hist
     return HistoryResult(
         pull_requests_seen=len(payload.pull_requests), commit_weeks=len(payload.commit_weeks)
     )
-
-
-def sync_history(
-    db: Session, repository: Repository, access_token: str, with_commits: bool = True
-) -> HistoryResult:
-    """Pull requests every pass, commit totals only when asked for.
-
-    They are separated because they answer at different speeds: a merge has to appear
-    promptly or the board is simply wrong, while a year of weekly commit counts is the
-    same year it was a minute ago.
-    """
-    known = db.scalar(
-        select(PullRequest.id).where(PullRequest.repository_id == repository.id).limit(1)
-    )
-    pages = REFRESH_PAGES if known else FIRST_SYNC_PAGES
-
-    pull_requests = github_api.list_pull_requests(access_token, repository.full_name, pages=pages)
-    record_pull_requests(db, repository, pull_requests)
-
-    weeks = github_api.commit_activity(access_token, repository.full_name) if with_commits else []
-    if weeks:
-        record_commit_weeks(db, repository, weeks)
-
-    db.commit()
-    return HistoryResult(pull_requests_seen=len(pull_requests), commit_weeks=len(weeks))
 
 
 def record_pull_requests(
