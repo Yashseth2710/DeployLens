@@ -1,26 +1,270 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Press check.
+
+   The dark theme is a pressroom at night: one viewing booth lights the sheets
+   and everything outside it falls to near-black. The light theme is the same
+   sheet pulled out and read on the bench under D50 light. Both are real rooms;
+   neither is an inversion of the other.
+
+   Every mark on a sheet in this system means something. Crop marks bound a
+   panel instead of a border. The control bar down an edge is deploy history.
+   The step wedge is a score. A registration mark is a live process.
+--------------------------------------------------------------------------- */
+
+@theme {
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-azeret), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Type scale. Rank A reads across a room, rank E is a plate label.
+     Everything between is set by tracking and ink, not by inventing sizes. */
+  --text-rank-a: 3.25rem;
+  --text-rank-a--line-height: 0.94;
+  --text-rank-a--letter-spacing: -0.035em;
+  --text-rank-b: 1.75rem;
+  --text-rank-b--line-height: 1.1;
+  --text-rank-b--letter-spacing: -0.022em;
+  --text-rank-c: 1.125rem;
+  --text-rank-c--line-height: 1.35;
+  --text-rank-c--letter-spacing: -0.012em;
+  --text-rank-d: 0.9375rem;
+  --text-rank-d--line-height: 1.55;
+  --text-rank-e: 0.6875rem;
+  --text-rank-e--line-height: 1.2;
+  --text-rank-e--letter-spacing: 0.16em;
+
+  --radius-sheet: 2px;
+
+  --ease-pull: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Dark: the pressroom. Default, and the world the mark belongs to. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ground: #070b14;
+  --booth: #0b1220;
+  --sheet: #101a2c;
+  --sheet-raised: #16233a;
+  --rule: #23324c;
+  --rule-strong: #35486a;
+
+  --ink: #e9ecf4;
+  --ink-quiet: #93a1bd;
+  --ink-faint: #7584a6;
+
+  --accent: #3b82f6;
+  --accent-strong: #60a5fa;
+  --accent-quiet: #1d3a6b;
+  --accent-ink: #04070d;
+
+  --ok: #4ea88b;
+  --ok-quiet: #14342c;
+  --hold: #d27265;
+  --hold-quiet: #3a1c19;
+  --wait: #c9a227;
+  --wait-quiet: #362c10;
+
+  --grain: 0.035;
+  --booth-light: 0.55;
+  color-scheme: dark;
+}
+
+/* Light: the same sheet on the bench under D50. Warm paper, not white UI. */
+[data-theme="light"] {
+  --ground: #dcd8cf;
+  --booth: #e8e4db;
+  --sheet: #f6f4ef;
+  --sheet-raised: #fffdf8;
+  --rule: #c6c0b2;
+  --rule-strong: #8d8676;
+
+  --ink: #161a20;
+  --ink-quiet: #4f5663;
+  --ink-faint: #595d69;
+
+  --accent: #1d4ed8;
+  --accent-strong: #1e40af;
+  --accent-quiet: #d6e0f7;
+  --accent-ink: #f8fafc;
+
+  --ok: #2f6f57;
+  --ok-quiet: #dbeade;
+  --hold: #a83a2c;
+  --hold-quiet: #f4dcd7;
+  --wait: #80620e;
+  --wait-quiet: #f2e7c8;
+
+  --grain: 0.055;
+  --booth-light: 0.14;
+  color-scheme: light;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-ground: var(--ground);
+  --color-booth: var(--booth);
+  --color-sheet: var(--sheet);
+  --color-sheet-raised: var(--sheet-raised);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-ink: var(--ink);
+  --color-ink-quiet: var(--ink-quiet);
+  --color-ink-faint: var(--ink-faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-quiet: var(--accent-quiet);
+  --color-accent-ink: var(--accent-ink);
+  --color-ok: var(--ok);
+  --color-ok-quiet: var(--ok-quiet);
+  --color-hold: var(--hold);
+  --color-hold-quiet: var(--hold-quiet);
+  --color-wait: var(--wait);
+  --color-wait-quiet: var(--wait-quiet);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    background-color: var(--ground);
+  }
+
+  body {
+    background-color: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-rank-d);
+    line-height: var(--text-rank-d--line-height);
+    /* The booth: one light source, above and slightly left of the sheets. */
+    background-image: radial-gradient(
+      120ch 70ch at 38% -10%,
+      color-mix(in oklab, var(--booth) calc(var(--booth-light) * 100%), transparent),
+      transparent 70%
+    );
+    background-attachment: fixed;
+  }
+
+  /* Uncoated stock. Cheap tooth, applied once to the page rather than per panel. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: var(--grain);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23t)'/%3E%3C/svg%3E");
+  }
+
+  /* Data is read in columns; numerals must not shift width between pulls. */
+  :where(table, .tabular, [data-numeric]) {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent-strong);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--accent) 40%, transparent);
+    color: var(--ink);
+  }
+
+  ::placeholder {
+    color: var(--ink-faint);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--rule-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ink-faint);
+  }
+
+  a {
+    text-underline-offset: 0.22em;
+    text-decoration-thickness: from-font;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  /* Plate label. One size across the whole system, ranked by ink, never by scale. */
+  .label {
+    font-family: var(--font-mono);
+    font-size: var(--text-rank-e);
+    line-height: var(--text-rank-e--line-height);
+    letter-spacing: var(--text-rank-e--letter-spacing);
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* Crop marks. A sheet is bounded by its corners, not boxed in by a border:
+     four L-shaped rules that register the panel without drawing a frame. */
+  .sheet {
+    position: relative;
+    background-color: var(--sheet);
+  }
+
+  .sheet::before,
+  .sheet::after,
+  .sheet > .crop-foot::before,
+  .sheet > .crop-foot::after {
+    content: "";
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    pointer-events: none;
+    border-color: var(--rule-strong);
+    border-style: solid;
+    border-width: 0;
+  }
+
+  .sheet::before {
+    top: -1px;
+    left: -1px;
+    border-top-width: 1px;
+    border-left-width: 1px;
+  }
+
+  .sheet::after {
+    top: -1px;
+    right: -1px;
+    border-top-width: 1px;
+    border-right-width: 1px;
+  }
+
+  .sheet > .crop-foot::before {
+    bottom: -1px;
+    left: -1px;
+    border-bottom-width: 1px;
+    border-left-width: 1px;
+  }
+
+  .sheet > .crop-foot::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom-width: 1px;
+    border-right-width: 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
