@@ -83,44 +83,59 @@ def record_provider_deployments(
     if not deployments:
         return 0
 
-    for deployment in deployments:
-        values = {
-            "repository_id": repository.id,
-            "github_deployment_id": deployment.github_deployment_id,
-            "environment": deployment.environment[:50],
-            "status": deployment.state,
-            "branch": deployment.ref,
-            "commit_sha": deployment.commit_sha,
-            "author": deployment.creator,
-            "started_at": deployment.created_at,
-            "completed_at": deployment.updated_at,
-            "duration_seconds": duration_of(deployment.created_at, deployment.updated_at),
-            "deployment_url": deployment.deployment_url,
-        }
-        db.execute(
-            insert(Deployment)
-            .values(**values)
-            .on_conflict_do_update(
-                constraint="uq_deployments_repo_github_id",
-                set_={
-                    key: values[key]
-                    for key in ("status", "completed_at", "duration_seconds", "deployment_url")
-                },
-            )
+    rows = [_provider_values(repository, deployment) for deployment in _newest_first(deployments)]
+    statement = insert(Deployment).values(rows)
+    db.execute(
+        statement.on_conflict_do_update(
+            constraint="uq_deployments_repo_github_id",
+            set_={
+                key: getattr(statement.excluded, key)
+                for key in ("status", "completed_at", "duration_seconds", "deployment_url")
+            },
         )
+    )
     db.commit()
     return len(deployments)
 
 
+def _newest_first(deployments: list[GitHubDeployment]) -> list[GitHubDeployment]:
+    """Postgres will not update the same row twice in one statement, so a repeated
+    deployment id is collapsed to one entry before the batch is built."""
+    return list(
+        {deployment.github_deployment_id: deployment for deployment in deployments}.values()
+    )
+
+
+def _provider_values(repository: Repository, deployment: GitHubDeployment) -> dict[str, object]:
+    return {
+        "repository_id": repository.id,
+        "github_deployment_id": deployment.github_deployment_id,
+        "environment": deployment.environment[:50],
+        "status": deployment.state,
+        "branch": deployment.ref,
+        "commit_sha": deployment.commit_sha,
+        "author": deployment.creator,
+        "started_at": deployment.created_at,
+        "completed_at": deployment.updated_at,
+        "duration_seconds": duration_of(deployment.created_at, deployment.updated_at),
+        "deployment_url": deployment.deployment_url,
+    }
+
+
 def record_runs(db: Session, repository: Repository, runs: list[GitHubWorkflowRun]) -> SyncResult:
+    """One statement for the whole page rather than one per run.
+
+    The database is a network hop away — around seventy milliseconds from here — so a
+    hundred runs written one at a time is seven seconds of waiting, every pass. Written
+    together it is a single round trip, and the difference is the whole reason a five
+    second window is possible.
+    """
     if not runs:
         return SyncResult(runs_seen=0, runs_added=0, deployments_added=0, provider_deployments=0)
 
     before = _counts(db, repository.id)
-    for run in runs:
-        run_id = _upsert_run(db, repository, run)
-        if is_deployment(run):
-            _upsert_deployment(db, repository, run, run_id)
+    ids_by_run = _upsert_runs(db, repository, runs)
+    _upsert_deployments(db, repository, [run for run in runs if is_deployment(run)], ids_by_run)
     db.commit()
     after = _counts(db, repository.id)
 
@@ -136,10 +151,41 @@ def is_deployment(run: GitHubWorkflowRun) -> bool:
     return run.event == "deployment" or bool(DEPLOY_WORKFLOW.search(run.workflow_name))
 
 
-def _upsert_run(db: Session, repository: Repository, run: GitHubWorkflowRun) -> UUID:
+def _upsert_runs(
+    db: Session, repository: Repository, runs: list[GitHubWorkflowRun]
+) -> dict[int, UUID]:
     """Keyed on the GitHub run id, so a re-sync and a redelivered webhook both land on
-    the row that is already there instead of a duplicate."""
-    values = {
+    the row that is already there instead of a duplicate.
+
+    Postgres refuses to update the same row twice in one statement, so a page carrying
+    the same run twice is collapsed first — the later entry wins, being the fresher read.
+    """
+    unique = {run.github_run_id: run for run in runs}
+    statement = insert(WorkflowRun).values(
+        [_run_values(repository, run) for run in unique.values()]
+    )
+    upsert = statement.on_conflict_do_update(
+        constraint="uq_workflow_runs_repo_run",
+        set_={
+            # event and actor are refreshed too, so a resync backfills rows that were
+            # ingested before those columns existed.
+            key: getattr(statement.excluded, key)
+            for key in (
+                "status",
+                "conclusion",
+                "completed_at",
+                "duration_seconds",
+                "event",
+                "actor",
+            )
+        },
+    ).returning(WorkflowRun.github_run_id, WorkflowRun.id)
+
+    return {github_run_id: row_id for github_run_id, row_id in db.execute(upsert)}
+
+
+def _run_values(repository: Repository, run: GitHubWorkflowRun) -> dict[str, object]:
+    return {
         "repository_id": repository.id,
         "github_run_id": run.github_run_id,
         "workflow_name": run.workflow_name,
@@ -154,37 +200,41 @@ def _upsert_run(db: Session, repository: Repository, run: GitHubWorkflowRun) -> 
         "duration_seconds": duration_of(run.started_at, run.completed_at),
         "html_url": run.html_url,
     }
-    statement = (
-        insert(WorkflowRun)
-        .values(**values)
-        .on_conflict_do_update(
-            constraint="uq_workflow_runs_repo_run",
+
+
+def _upsert_deployments(
+    db: Session,
+    repository: Repository,
+    runs: list[GitHubWorkflowRun],
+    ids_by_run: dict[int, UUID],
+) -> None:
+    rows = [
+        _deployment_values(repository, run, ids_by_run[run.github_run_id])
+        for run in {run.github_run_id: run for run in runs}.values()
+        if run.github_run_id in ids_by_run
+    ]
+    if not rows:
+        return
+
+    statement = insert(Deployment).values(rows)
+    db.execute(
+        statement.on_conflict_do_update(
+            index_elements=["workflow_run_id"],
             set_={
-                # event and actor are refreshed too, so a resync backfills rows that
-                # were ingested before those columns existed.
-                key: values[key]
-                for key in (
-                    "status",
-                    "conclusion",
-                    "completed_at",
-                    "duration_seconds",
-                    "event",
-                    "actor",
-                )
+                key: getattr(statement.excluded, key)
+                for key in ("status", "completed_at", "duration_seconds", "environment")
             },
         )
-        .returning(WorkflowRun.id)
     )
-    return db.execute(statement).scalar_one()
 
 
-def _upsert_deployment(
-    db: Session, repository: Repository, run: GitHubWorkflowRun, run_id: UUID
-) -> None:
+def _deployment_values(
+    repository: Repository, run: GitHubWorkflowRun, run_id: UUID
+) -> dict[str, object]:
     environment = (
         "production" if run.branch == repository.default_branch else run.branch or "preview"
     )
-    values = {
+    return {
         "repository_id": repository.id,
         "workflow_run_id": run_id,
         "environment": environment[:50],
@@ -196,18 +246,6 @@ def _upsert_deployment(
         "completed_at": run.completed_at,
         "duration_seconds": duration_of(run.started_at, run.completed_at),
     }
-    statement = (
-        insert(Deployment)
-        .values(**values)
-        .on_conflict_do_update(
-            index_elements=["workflow_run_id"],
-            set_={
-                key: values[key]
-                for key in ("status", "completed_at", "duration_seconds", "environment")
-            },
-        )
-    )
-    db.execute(statement)
 
 
 def duration_of(started_at: datetime | None, completed_at: datetime | None) -> int | None:

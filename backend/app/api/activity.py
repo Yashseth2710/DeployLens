@@ -6,10 +6,9 @@ from app.api.deps import CurrentUser, DbSession, GitHubToken
 from app.schemas.activity import ActivityBoardOut
 from app.services import activity, autosync
 
-# What the page waits before asking again. Sent by the server rather than fixed in the
-# client so this and the staleness window in autosync cannot drift apart — a poll slower
-# than the throttle would make the throttle the real refresh rate, silently.
-POLL_SECONDS = 5
+# What the page waits before asking again is computed from the same function that decides
+# when a repository is stale, so the two cannot drift — a poll slower than the throttle
+# would make the throttle the real refresh rate, silently.
 
 router = APIRouter(prefix="/api/activity", tags=["activity"])
 
@@ -23,6 +22,7 @@ def refresh(user: CurrentUser, db: DbSession, token: GitHubToken) -> dict[str, A
     """
     report = autosync.refresh_user(db, user, token)
     items = activity.board(db, user.id)
+    connected = report.synced + report.skipped + report.failed
 
     return {
         "items": items,
@@ -30,5 +30,5 @@ def refresh(user: CurrentUser, db: DbSession, token: GitHubToken) -> dict[str, A
         "last_synced_at": report.last_synced_at,
         "synced": report.synced,
         "failed": report.failed,
-        "poll_seconds": POLL_SECONDS,
+        "poll_seconds": round(autosync.watching_interval(connected).total_seconds()),
     }

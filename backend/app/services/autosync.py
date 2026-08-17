@@ -9,26 +9,28 @@ from app.models.user import User
 from app.services import history_sync, tokens, workflow_sync
 from app.services.github_api import GitHubAuthExpiredError, GitHubError
 
-# How stale a repository is allowed to get before it is pulled again while somebody is
-# watching. Five seconds is fast enough that a run appearing on GitHub and appearing here
-# feel like the same event.
-#
-# The cost is three requests per repository per pass — runs, deployments, pull requests —
-# which is only affordable because a deployment already recorded in a final state is
-# never re-read. That fix matters more than this number: without it a repository with
-# thirty deployments cost thirty one requests a pass and no window would have been safe.
-# At three requests, an open tab on two repositories spends about 4300 of the 5000 an
-# hour a token allows. A third repository needs this raised.
-WATCHING_MAX_AGE = timedelta(seconds=5)
+# The fastest we will collect while somebody is watching. Five seconds is close enough
+# that a run appearing on GitHub and appearing here feel like the same event.
+FASTEST_WATCHING = timedelta(seconds=5)
+
+# Each pass spends this many requests per repository: runs, deployments, pull requests.
+# It stays at three only because a deployment already recorded in a final state is never
+# read again — without that a repository with thirty deployments cost thirty one requests
+# a pass and no window would have been safe.
+REQUESTS_PER_PASS = 3
+
+# GitHub allows five thousand an hour per token. The rest is left for everything that is
+# not this loop: connecting a repository, listing what is available, signing in.
+HOURLY_BUDGET = 4200
 
 # The scheduled run has no browser watching it, so it refreshes everything it finds
 # rather than deciding what looks interesting.
 CRON_MAX_AGE = timedelta(minutes=30)
 
 # A pull request changes state the instant somebody merges it, and a board showing a
-# merged one as open is wrong rather than merely late — so it runs at the same window as
-# everything else.
-PULL_REQUEST_MAX_AGE = timedelta(seconds=5)
+# merged one as open is wrong rather than merely late — so it rides the same pass as the
+# runs rather than waiting for a window of its own.
+PULL_REQUEST_MAX_AGE = timedelta(seconds=1)
 
 # Commit totals are weekly buckets that GitHub recomputes on its own schedule, so asking
 # more often than this reads the same numbers back.
@@ -58,7 +60,21 @@ def refresh_user(db: Session, user: User, access_token: str) -> RefreshReport:
     repositories = list(
         db.scalars(select(Repository).where(Repository.user_id == user.id).order_by(Repository.id))
     )
-    return _refresh(db, repositories, access_token, max_age=WATCHING_MAX_AGE)
+    return _refresh(db, repositories, access_token, max_age=watching_interval(len(repositories)))
+
+
+def watching_interval(repositories: int) -> timedelta:
+    """The shortest window this many repositories can be collected at without spending
+    more of GitHub's hourly allowance than we are willing to.
+
+    Fixed at five seconds it would have been correct for two repositories and quietly
+    wrong for four — the page would keep asking and GitHub would start refusing, which
+    reads as the app being broken rather than as a budget being exceeded.
+    """
+    if repositories <= 0:
+        return FASTEST_WATCHING
+    affordable = repositories * REQUESTS_PER_PASS * 3600 / HOURLY_BUDGET
+    return max(FASTEST_WATCHING, timedelta(seconds=affordable))
 
 
 def refresh_everyone(db: Session) -> RefreshReport:

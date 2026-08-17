@@ -129,7 +129,9 @@ def test_a_repository_read_longer_ago_than_the_window_is_pulled_again(
 ):
     """The throttle is what an open page feels as its refresh rate, so a repository
     older than it must be collected without anybody asking."""
-    repository.last_synced_at = datetime.now(UTC) - autosync.WATCHING_MAX_AGE - timedelta(seconds=1)
+    repository.last_synced_at = (
+        datetime.now(UTC) - autosync.watching_interval(1) - timedelta(seconds=1)
+    )
     db.flush()
     monkeypatch.setattr(autosync.workflow_sync, "sync_repository", _synced_nothing, raising=True)
 
@@ -184,7 +186,7 @@ def test_activity_endpoint_reports_the_live_board_and_its_poll_rate(
     body = client.post("/api/activity").json()
 
     assert body["live_count"] == 1
-    assert body["poll_seconds"] == 5
+    assert body["poll_seconds"] == 5  # one repository fits the fastest window
     assert body["items"][0]["live"] is True
 
 
@@ -209,6 +211,18 @@ def test_a_provider_deployment_still_building_reads_as_live(
     assert board[0].kind == "deploy"
     assert board[0].live is True
     assert board[0].title == "Deploy to production"
+
+
+def test_the_window_widens_rather_than_outrunning_the_rate_limit(db: Session):
+    """Fixed at five seconds this was correct for two repositories and quietly wrong for
+    four: the page would keep asking and GitHub would start refusing, which reads as the
+    app being broken rather than as a budget being exceeded."""
+    assert autosync.watching_interval(1) == autosync.FASTEST_WATCHING
+    assert autosync.watching_interval(10) > autosync.watching_interval(3)
+
+    for count in (1, 3, 10):
+        passes_per_hour = 3600 / autosync.watching_interval(count).total_seconds()
+        assert passes_per_hour * count * autosync.REQUESTS_PER_PASS <= autosync.HOURLY_BUDGET + 1
 
 
 def _synced_nothing(db_: Session, repository: Repository, token: str):
