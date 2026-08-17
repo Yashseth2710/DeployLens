@@ -1,18 +1,18 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { Button } from "@/components/button";
+import { Button, ButtonLink } from "@/components/button";
 import { ApiError } from "@/lib/api";
 import { useSession, useSignOut } from "@/lib/queries";
 
 /**
  * Who signed this sheet. Signing out is reachable from every page — an
- * endpoint nobody can press is not a capability — and switching account needs
- * the GitHub revoke link, because GitHub re-authorizes the same account
- * silently and the user would otherwise land back where they started.
+ * endpoint nobody can press is not a capability. Switching account is its own
+ * control rather than a sentence, with the revoke caveat kept underneath it:
+ * GitHub re-authorizes the same account silently, so a user who skips the
+ * revoke lands back where they started.
  */
 export function AccountBar() {
   const session = useSession();
@@ -59,7 +59,7 @@ export function AccountBar() {
 
         <div className="border-rule flex flex-col gap-2 border-t pt-3">
           <Button
-            variant="secondary"
+            variant="primary"
             size="compact"
             disabled={signOut.isPending}
             onClick={() =>
@@ -73,14 +73,18 @@ export function AccountBar() {
           >
             {signOut.isPending ? "Signing out…" : "Sign out"}
           </Button>
-          <Link
+          <ButtonLink
             href="https://github.com/settings/applications"
             target="_blank"
             rel="noreferrer"
-            className="label hover:!text-ink leading-[1.5] transition-colors"
+            variant="secondary"
+            size="compact"
           >
-            Switch account — revoke on GitHub first, or it signs you straight back in
-          </Link>
+            Switch account
+          </ButtonLink>
+          <p className="label !text-ink-faint leading-[1.5] !tracking-[0.08em]">
+            Revoke DeployLens on GitHub first, or it signs you straight back into this account.
+          </p>
         </div>
         <span className="crop-foot" aria-hidden="true" />
       </div>
