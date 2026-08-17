@@ -6,7 +6,8 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
 from app.models.repository import Repository
-from app.schemas.analytics import OverviewOut, TrendOut
+from app.models.workflow import WorkflowRun
+from app.schemas.analytics import OverviewOut, RepositoryDetailOut, TrendOut
 from app.services import metrics
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -33,6 +34,37 @@ def overview(user: CurrentUser, db: DbSession, days: WindowDays = 30) -> dict[st
         "uptime": uptime,
         "health_score": metrics.health_score(delivery, uptime, pipeline),
         "repositories": metrics.per_repository(db, user.id, days),
+    }
+
+
+@router.get("/repositories/{repository_id}", response_model=RepositoryDetailOut)
+def repository_detail(
+    repository_id: UUID, user: CurrentUser, db: DbSession, days: WindowDays = 30
+) -> dict[str, Any]:
+    """One repository read on its own. The dashboard answers "how is everything", which
+    is a different question from "what is going on with this project" — the breakdowns
+    by workflow and by branch only mean anything once a single repository is in scope."""
+    repository = db.scalar(
+        select(Repository).where(Repository.id == repository_id, Repository.user_id == user.id)
+    )
+    if repository is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such connected repository")
+
+    ids = [repository_id]
+    delivery = metrics.delivery_metrics(db, ids, days)
+    uptime = metrics.uptime_metrics(db, ids, days)
+    pipeline = metrics.pipeline_metrics(db, ids, days)
+
+    return {
+        "repository": repository,
+        "window_days": days,
+        "delivery": delivery,
+        "pipeline": pipeline,
+        "uptime": uptime,
+        "health_score": metrics.health_score(delivery, uptime, pipeline),
+        "workflows": metrics.run_groups(db, repository_id, days, WorkflowRun.workflow_name),
+        "branches": metrics.run_groups(db, repository_id, days, WorkflowRun.branch),
+        "first_activity_at": metrics.first_activity_at(db, repository_id),
     }
 
 

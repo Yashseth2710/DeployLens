@@ -108,6 +108,28 @@ export type RepositoryMetrics = {
   health_score: number | null;
 };
 
+export type RunGroup = {
+  name: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  success_rate: number | null;
+  average_duration_seconds: number | null;
+  last_run_at: string | null;
+};
+
+export type RepositoryDetail = {
+  repository: ConnectedRepository;
+  window_days: number;
+  delivery: DeliveryMetrics;
+  pipeline: PipelineMetrics;
+  uptime: UptimeMetrics;
+  health_score: number | null;
+  workflows: RunGroup[];
+  branches: RunGroup[];
+  first_activity_at: string | null;
+};
+
 export type Overview = {
   window_days: number;
   connected_repositories: number;

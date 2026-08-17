@@ -1,3 +1,4 @@
+import { ButtonLink } from "@/components/button";
 import { Reading } from "@/components/reading";
 import { Sheet } from "@/components/sheet";
 import { ControlBar, SignOff, StepWedge, type Outcome } from "@/components/status";
@@ -110,6 +111,12 @@ export function ProjectSheet({
             {latestDeploy.status}
           </p>
         ) : null}
+      </div>
+
+      <div className="border-rule mt-auto border-t px-5 py-4">
+        <ButtonLink href={`/repositories/${metrics.repository_id}`} className="w-full">
+          See details
+        </ButtonLink>
       </div>
     </Sheet>
   );

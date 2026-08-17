@@ -291,3 +291,75 @@ def test_a_project_with_runs_but_no_deploys_is_still_scored(
     assert body["delivery"]["deployments"] == 0
     # Runs are the only component with data, so the score is exactly their pass rate.
     assert body["health_score"] == 80
+
+
+def add_run(
+    db: Session,
+    repository: Repository,
+    *,
+    github_run_id: int,
+    workflow: str = "CI",
+    branch: str | None = "main",
+    conclusion: str | None = "success",
+    days_ago: float = 0,
+    duration: int = 60,
+) -> WorkflowRun:
+    record = WorkflowRun(
+        repository_id=repository.id,
+        github_run_id=github_run_id,
+        workflow_name=workflow,
+        branch=branch,
+        status="completed",
+        conclusion=conclusion,
+        duration_seconds=duration,
+        started_at=NOW - timedelta(days=days_ago),
+    )
+    db.add(record)
+    db.flush()
+    return record
+
+
+def test_repository_detail_breaks_runs_down_by_workflow_and_branch(
+    client: TestClient, db: Session, signed_in: User, repository: Repository
+):
+    add_run(db, repository, github_run_id=6001, workflow="CI", branch="main")
+    add_run(db, repository, github_run_id=6002, workflow="CI", branch="main", conclusion="failure")
+    add_run(db, repository, github_run_id=6003, workflow="CI", branch="feature")
+    add_run(db, repository, github_run_id=6004, workflow="Health probes", branch="main")
+
+    body = client.get(f"/api/analytics/repositories/{repository.id}").json()
+
+    assert body["repository"]["full_name"] == "octocat/deploylens"
+    assert body["pipeline"]["runs"] == 4
+    # Busiest first, so the workflow worth reading leads.
+    assert [group["name"] for group in body["workflows"]] == ["CI", "Health probes"]
+    assert body["workflows"][0]["runs"] == 3
+    assert body["workflows"][0]["success_rate"] == pytest.approx(66.7)
+    assert [group["name"] for group in body["branches"]] == ["main", "feature"]
+    assert body["branches"][0]["runs"] == 3
+
+
+def test_repository_detail_reports_how_far_back_it_can_see(
+    client: TestClient, db: Session, signed_in: User, repository: Repository
+):
+    """The window is 30 days but the oldest run is older, and saying so is what stops
+    the page implying it holds a project's whole history."""
+    add_run(db, repository, github_run_id=6101, days_ago=200)
+    add_run(db, repository, github_run_id=6102, days_ago=1)
+
+    body = client.get(f"/api/analytics/repositories/{repository.id}").json()
+
+    assert body["pipeline"]["runs"] == 1
+    assert body["first_activity_at"] is not None
+    assert body["first_activity_at"] < body["pipeline"]["last_run_at"]
+
+
+def test_repository_detail_hides_another_users_repository(
+    client: TestClient, db: Session, signed_in: User
+):
+    stranger = User(github_id=99123, username="stranger", access_token_encrypted="x")
+    db.add(stranger)
+    db.flush()
+    theirs = add_repository(db, stranger, "stranger/private-thing", 900777)
+
+    assert client.get(f"/api/analytics/repositories/{theirs.id}").status_code == 404

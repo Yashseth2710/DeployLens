@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.repository import ConnectedRepository
+
 
 class DeliveryMetricsOut(BaseModel):
     deployments: int
@@ -65,6 +67,28 @@ class OverviewOut(BaseModel):
     uptime: UptimeMetricsOut
     health_score: int | None
     repositories: list[RepositoryMetricsOut]
+
+
+class RunGroupOut(BaseModel):
+    name: str
+    runs: int
+    succeeded: int
+    failed: int
+    success_rate: float | None
+    average_duration_seconds: int | None
+    last_run_at: datetime | None
+
+
+class RepositoryDetailOut(BaseModel):
+    repository: ConnectedRepository
+    window_days: int
+    delivery: DeliveryMetricsOut
+    pipeline: PipelineMetricsOut
+    uptime: UptimeMetricsOut
+    health_score: int | None
+    workflows: list[RunGroupOut]
+    branches: list[RunGroupOut]
+    first_activity_at: datetime | None
 
 
 class TrendOut(BaseModel):

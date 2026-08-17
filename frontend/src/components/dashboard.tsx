@@ -6,18 +6,15 @@ import { ButtonLink } from "@/components/button";
 import { Notice } from "@/components/notice";
 import { ProjectSheet } from "@/components/project-sheet";
 import { Reading } from "@/components/reading";
+import { RunFeed } from "@/components/run-feed";
 import { Sheet, SheetHead } from "@/components/sheet";
-import { OutcomeMark, StepWedge } from "@/components/status";
+import { StepWedge } from "@/components/status";
 import { WindowControl, type WindowDays } from "@/components/window-control";
-import { cn } from "@/lib/cn";
-import { EVENT_LABEL, formatDuration, formatWhen, runOutcome } from "@/lib/outcome";
+import { formatDuration, formatWhen } from "@/lib/outcome";
 import { useOverview, useRecentDeployments, useRecentRuns, useSession } from "@/lib/queries";
-import type { WorkflowRunRow } from "@/lib/types";
 
 const CONTROL_BAR_LENGTH = 12;
 const RUN_FEED_LENGTH = 40;
-
-type RunFilter = "all" | "failed" | "deploys";
 
 export function Dashboard() {
   const session = useSession();
@@ -177,101 +174,8 @@ export function Dashboard() {
         ))}
       </div>
 
-      <Activity runs={runs.data ?? []} loading={runs.isPending} />
+      <RunFeed runs={runs.data ?? []} loading={runs.isPending} showRepository />
     </div>
-  );
-}
-
-/**
- * Every run, not only the ones that shipped. A failing test on a pull request is
- * the question a developer asks most often, and it would never appear in a feed
- * built only from deployments.
- */
-function Activity({ runs, loading }: { runs: WorkflowRunRow[]; loading: boolean }) {
-  const [filter, setFilter] = useState<RunFilter>("all");
-
-  const shown = runs.filter((run) => {
-    if (filter === "failed") return runOutcome(run.status, run.conclusion) === "hold";
-    if (filter === "deploys") return /deploy|release|publish|ship|promote/i.test(run.workflow_name);
-    return true;
-  });
-
-  return (
-    <Sheet>
-      <SheetHead
-        title="Pipeline activity"
-        meta={`${shown.length} of ${runs.length} runs`}
-        action={
-          <div
-            className="border-rule flex items-center border"
-            role="group"
-            aria-label="Filter runs"
-          >
-            {(["all", "failed", "deploys"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setFilter(option)}
-                aria-pressed={option === filter}
-                className={cn(
-                  "label border-rule px-3 py-1.5 !tracking-[0.12em] transition-colors not-last:border-r",
-                  option === filter
-                    ? "bg-accent !text-accent-ink"
-                    : "hover:bg-sheet-raised hover:!text-ink",
-                )}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-        }
-      />
-
-      {loading ? (
-        <div className="px-5 py-8" aria-busy="true">
-          <span className="bg-rule block h-3 w-48 animate-pulse rounded-[1px]" />
-        </div>
-      ) : shown.length === 0 ? (
-        <Notice
-          title={filter === "all" ? "No runs recorded yet" : `No ${filter} runs recorded`}
-          detail={
-            filter === "all"
-              ? "Runs arrive within seconds of a workflow finishing, or after a sync from the repositories page."
-              : "Change the filter to see the rest of the pipeline."
-          }
-        />
-      ) : (
-        <ul>
-          {shown.map((run) => {
-            const outcome = runOutcome(run.status, run.conclusion);
-            return (
-              <li
-                key={run.id}
-                className="border-rule hover:bg-sheet-raised grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-b px-5 py-3 transition-colors last:border-b-0 sm:grid-cols-[auto_minmax(0,13rem)_minmax(0,1fr)_auto]"
-              >
-                <OutcomeMark outcome={outcome} className={toneOf(outcome)} />
-                <a
-                  href={run.html_url ?? undefined}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-ink hover:text-accent truncate transition-colors"
-                >
-                  {run.workflow_name}
-                </a>
-                <span className="label col-span-2 truncate !tracking-[0.08em] sm:col-span-1">
-                  {run.branch ?? "no branch"}
-                  {run.event ? ` · ${EVENT_LABEL[run.event] ?? run.event}` : ""}
-                  {run.commit_sha ? ` · ${run.commit_sha.slice(0, 7)}` : ""}
-                </span>
-                <span className="label text-right !tracking-[0.08em]">
-                  {formatDuration(run.duration_seconds) ?? "—"} · {formatWhen(run.started_at)}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </Sheet>
   );
 }
 
@@ -285,13 +189,6 @@ function groupByRepository<T extends { repository_id: string }>(rows: T[]): Map<
     }
   }
   return grouped;
-}
-
-function toneOf(outcome: ReturnType<typeof runOutcome>): string {
-  if (outcome === "ok") return "text-ok";
-  if (outcome === "hold") return "text-hold";
-  if (outcome === "wait") return "text-wait";
-  return "text-ink-faint";
 }
 
 function PullingSheet() {
