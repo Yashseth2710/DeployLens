@@ -109,3 +109,29 @@ class TrendOut(BaseModel):
     window_days: int
     deployments: list[DeploymentPointOut]
     uptime: list[UptimePointOut]
+
+
+class FindingOut(BaseModel):
+    kind: str
+    subject: str
+    detail: str
+    runs: int
+    failed: int
+    last_seen_at: datetime | None
+    run_url: str | None
+
+
+class RepositoryFindingsOut(BaseModel):
+    repository_id: UUID
+    full_name: str
+    findings: list[FindingOut]
+
+
+class InsightsOut(BaseModel):
+    window_days: int
+    findings: list[FindingOut]
+
+
+class AttentionOut(BaseModel):
+    window_days: int
+    repositories: list[RepositoryFindingsOut]

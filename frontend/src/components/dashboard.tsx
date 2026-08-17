@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { ButtonLink } from "@/components/button";
+import { AttentionBand } from "@/components/findings";
 import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
 import { ProjectSheet } from "@/components/project-sheet";
@@ -16,6 +17,7 @@ import { formatDuration, formatWhen } from "@/lib/outcome";
 import {
   isAccessExpired,
   useActivityBoard,
+  useAttention,
   useOverview,
   useRecentDeployments,
   useRecentRuns,
@@ -34,6 +36,7 @@ export function Dashboard() {
   const overview = useOverview(days, signedIn);
   const deployments = useRecentDeployments(100, signedIn);
   const runs = useRecentRuns(RUN_FEED_LENGTH, signedIn);
+  const attention = useAttention(days, signedIn);
 
   const deploysByRepository = useMemo(
     () => groupByRepository(deployments.data ?? []),
@@ -126,6 +129,8 @@ export function Dashboard() {
           the window to read a project that has finished shipping.
         </p>
       ) : null}
+
+      <AttentionBand repositories={attention.data?.repositories ?? []} />
 
       <Sheet>
         <SheetHead title="Across every project" meta={window} />

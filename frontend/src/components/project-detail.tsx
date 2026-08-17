@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { ButtonLink } from "@/components/button";
 import { EndpointMonitor } from "@/components/endpoint-monitor";
+import { Findings } from "@/components/findings";
 import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
 import { PullRequestList } from "@/components/pull-request-list";
@@ -19,6 +20,7 @@ import { formatDuration, formatHours, formatWhen, outcomeOf, runOutcome } from "
 import {
   isAccessExpired,
   useActivityBoard,
+  useInsights,
   useRecentDeployments,
   useRecentRuns,
   usePullRequests,
@@ -50,6 +52,7 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
   const runs = useRecentRuns(RUN_FEED_LENGTH, signedIn, repositoryId);
   const deploys = useRecentDeployments(DEPLOY_LIST_LENGTH, signedIn, repositoryId);
   const pullRequests = usePullRequests(PULL_REQUEST_LENGTH, signedIn, repositoryId);
+  const insights = useInsights(repositoryId, days, signedIn);
   const activity = (board.data?.items ?? []).filter((item) => item.repository_id === repositoryId);
 
   if (session.isPending || (signedIn && detail.isPending)) {
@@ -238,6 +241,12 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
           </div>
         ) : null}
       </Sheet>
+
+      <Findings
+        findings={insights.data?.findings ?? []}
+        loading={insights.isPending}
+        windowDays={days}
+      />
 
       <EndpointMonitor repositoryId={repositoryId} />
 
