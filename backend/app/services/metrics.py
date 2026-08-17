@@ -14,7 +14,7 @@ from app.models.workflow import Deployment, WorkflowRun
 # A cancelled or skipped run says nothing about whether the pipeline works, so the
 # success rate is computed over decided outcomes only.
 SUCCEEDED = ("success",)
-FAILED = ("failure", "timed_out", "startup_failure")
+FAILED = ("failure", "timed_out", "startup_failure", "error")
 
 # Three deployments a week is the point where shipping looks continuous rather than
 # occasional. Anything at or above it scores full marks for frequency.

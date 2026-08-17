@@ -51,6 +51,7 @@ def actions():
         mock.get(f"{API_URL}/repos/{FULL_NAME}/actions/runs").respond(
             json={"total_count": 1, "workflow_runs": [run_payload()]}
         )
+        mock.get(f"{API_URL}/repos/{FULL_NAME}/deployments").respond(json=[])
         yield mock
 
 
@@ -64,7 +65,12 @@ def test_sync_records_the_run_and_its_deployment(
     response = sync(client, repository)
 
     assert response.status_code == 200
-    assert response.json() == {"runs_seen": 1, "runs_added": 1, "deployments_added": 1}
+    assert response.json() == {
+        "runs_seen": 1,
+        "runs_added": 1,
+        "deployments_added": 1,
+        "provider_deployments": 0,
+    }
 
     run = _only_run(db, repository)
     assert run is not None
@@ -127,7 +133,12 @@ def test_test_and_lint_runs_are_recorded_but_are_not_deployments(
 
     response = sync(client, repository)
 
-    assert response.json() == {"runs_seen": 3, "runs_added": 3, "deployments_added": 1}
+    assert response.json() == {
+        "runs_seen": 3,
+        "runs_added": 3,
+        "deployments_added": 1,
+        "provider_deployments": 0,
+    }
     assert _only_deployment(db, repository).commit_sha == "a" * 40
 
 
@@ -176,3 +187,61 @@ def _only_run(db: Session, repository: Repository) -> WorkflowRun:
 
 def _only_deployment(db: Session, repository: Repository) -> Deployment:
     return db.scalar(select(Deployment).where(Deployment.repository_id == repository.id))
+
+
+DEPLOYMENT = {
+    "id": 88001,
+    "environment": "Production",
+    "ref": "main",
+    "sha": "d" * 40,
+    "creator": {"login": "vercel[bot]"},
+    "created_at": "2026-08-16T09:00:00Z",
+    "updated_at": "2026-08-16T09:02:00Z",
+}
+STATUS = {
+    "state": "success",
+    "environment_url": "https://pdf-genius.vercel.app",
+    "created_at": "2026-08-16T09:02:00Z",
+}
+
+
+@pytest.fixture
+def provider_deployments(actions):
+    """Most projects ship through a hosting integration rather than a workflow, and
+    GitHub records those deployments whoever created them."""
+    actions.get(f"{API_URL}/repos/{FULL_NAME}/deployments").respond(json=[DEPLOYMENT])
+    actions.get(f"{API_URL}/repos/{FULL_NAME}/deployments/88001/statuses").respond(json=[STATUS])
+    return actions
+
+
+def test_a_deployment_made_by_the_host_is_recorded(
+    client: TestClient, db: Session, signed_in: User, repository: Repository, provider_deployments
+):
+    response = sync(client, repository)
+
+    assert response.json()["provider_deployments"] == 1
+
+    deployment = db.scalar(select(Deployment).where(Deployment.github_deployment_id == 88001))
+    assert deployment is not None
+    assert deployment.environment == "Production"
+    assert deployment.status == "success"
+    assert deployment.author == "vercel[bot]"
+    assert deployment.deployment_url == "https://pdf-genius.vercel.app"
+    assert deployment.duration_seconds == 120
+    # It came from the Deployments API, so no Actions run produced it.
+    assert deployment.workflow_run_id is None
+
+
+def test_resyncing_updates_a_host_deployment_rather_than_duplicating_it(
+    client: TestClient, db: Session, signed_in: User, repository: Repository, provider_deployments
+):
+    sync(client, repository)
+    provider_deployments.get(f"{API_URL}/repos/{FULL_NAME}/deployments/88001/statuses").respond(
+        json=[{**STATUS, "state": "error"}]
+    )
+
+    sync(client, repository)
+
+    rows = db.scalars(select(Deployment).where(Deployment.github_deployment_id == 88001)).all()
+    assert len(rows) == 1
+    assert rows[0].status == "error"

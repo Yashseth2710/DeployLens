@@ -34,6 +34,7 @@ export type SyncSummary = {
   runs_seen: number;
   runs_added: number;
   deployments_added: number;
+  provider_deployments: number;
 };
 
 export type DeploymentSummary = {
@@ -48,6 +49,7 @@ export type DeploymentSummary = {
   started_at: string | null;
   completed_at: string | null;
   duration_seconds: number | null;
+  deployment_url: string | null;
 };
 
 export type DeliveryMetrics = {

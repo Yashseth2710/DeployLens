@@ -34,6 +34,7 @@ class DeploymentSummary(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     duration_seconds: int | None
+    deployment_url: str | None
 
 
 class DeploymentDetail(DeploymentSummary):
@@ -44,6 +45,7 @@ class SyncSummary(BaseModel):
     runs_seen: int
     runs_added: int
     deployments_added: int
+    provider_deployments: int
 
 
 class WorkflowRunRow(BaseModel):

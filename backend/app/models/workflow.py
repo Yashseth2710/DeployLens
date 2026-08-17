@@ -72,8 +72,18 @@ class Deployment(Base, PrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "deployments"
     __table_args__ = (
+        # A provider deployment is keyed on GitHub's id so a resync updates it; runs
+        # that shipped through Actions have no such id and key on the run instead.
+        UniqueConstraint(
+            "repository_id", "github_deployment_id", name="uq_deployments_repo_github_id"
+        ),
         Index("ix_deployments_repo_started", "repository_id", text("started_at DESC")),
     )
+
+    # Set when the deployment came from GitHub's Deployments API, which is where
+    # Vercel, Netlify and friends record what they shipped. Null for deployments
+    # inferred from an Actions workflow.
+    github_deployment_id: Mapped[int | None] = mapped_column(BigInteger)
 
     repository_id: Mapped[UUID] = mapped_column(
         ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False

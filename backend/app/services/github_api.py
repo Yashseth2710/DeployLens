@@ -57,6 +57,19 @@ class GitHubWorkflowRun:
     html_url: str | None
 
 
+@dataclass(frozen=True)
+class GitHubDeployment:
+    github_deployment_id: int
+    environment: str
+    ref: str | None
+    commit_sha: str | None
+    creator: str | None
+    state: str
+    deployment_url: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
+
+
 @contextmanager
 def client(access_token: str) -> Iterator[httpx.Client]:
     headers = {
@@ -179,6 +192,34 @@ def _webhook_id(http: httpx.Client, full_name: str, callback_url: str) -> int | 
             hook_id: int = hook["id"]
             return hook_id
     return None
+
+
+def list_deployments(access_token: str, full_name: str, limit: int = 30) -> list[GitHubDeployment]:
+    """GitHub records what Vercel, Netlify and every other provider integration
+    shipped, whether or not an Actions workflow was involved. Each deployment needs a
+    second call for its state, so the batch is capped rather than paged.
+    """
+    deployments: list[GitHubDeployment] = []
+    with client(access_token) as http:
+        for payload in get(http, f"/repos/{full_name}/deployments", per_page=limit):
+            statuses = get(
+                http, f"/repos/{full_name}/deployments/{payload['id']}/statuses", per_page=1
+            )
+            latest = statuses[0] if statuses else {}
+            deployments.append(
+                GitHubDeployment(
+                    github_deployment_id=payload["id"],
+                    environment=payload.get("environment") or "production",
+                    ref=payload.get("ref"),
+                    commit_sha=payload.get("sha"),
+                    creator=(payload.get("creator") or {}).get("login"),
+                    state=latest.get("state") or "pending",
+                    deployment_url=latest.get("environment_url") or latest.get("target_url"),
+                    created_at=_timestamp(payload.get("created_at")),
+                    updated_at=_timestamp(latest.get("created_at") or payload.get("updated_at")),
+                )
+            )
+    return deployments
 
 
 def as_workflow_run(payload: dict[str, Any]) -> GitHubWorkflowRun:
