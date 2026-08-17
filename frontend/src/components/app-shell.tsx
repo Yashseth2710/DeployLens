@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { AccountBar } from "@/components/account-bar";
 import { Wordmark } from "@/components/brand";
+import { MainNav } from "@/components/main-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
@@ -13,19 +15,22 @@ export function AppShell({ children, nav }: { children: ReactNode; nav?: ReactNo
   return (
     <div className="relative isolate flex min-h-dvh flex-col">
       <header className="border-rule border-b">
-        <div className="mx-auto flex w-full max-w-[76rem] items-center gap-6 px-6 py-4">
+        <div className="mx-auto flex w-full max-w-[76rem] items-center gap-4 px-5 py-4 sm:gap-6 sm:px-6">
           <Link href="/" className="rounded-sheet text-rank-c">
             <Wordmark />
           </Link>
-          {nav ? <div className="flex-1">{nav}</div> : <div className="flex-1" />}
-          <ThemeToggle />
+          <nav className="flex-1">{nav ?? <MainNav />}</nav>
+          <div className="flex shrink-0 items-center gap-4">
+            <AccountBar />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[76rem] flex-1 px-6 py-10">{children}</main>
+      <main className="mx-auto w-full max-w-[76rem] flex-1 px-5 py-10 sm:px-6">{children}</main>
 
       <footer className="border-rule border-t">
-        <div className="mx-auto flex w-full max-w-[76rem] flex-wrap items-center justify-between gap-4 px-6 py-5">
+        <div className="mx-auto flex w-full max-w-[76rem] flex-wrap items-center justify-between gap-4 px-5 py-5 sm:px-6">
           <p className="label">
             Deployment and uptime tracking · GitHub Actions · Runs on free tiers
           </p>

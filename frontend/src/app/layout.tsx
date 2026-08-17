@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo, Azeret_Mono } from "next/font/google";
 
+import { QueryProvider } from "@/components/query-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -47,7 +48,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="flex min-h-full flex-col">
         <div hidden dangerouslySetInnerHTML={{ __html: DESIGN_NOTE }} />
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <QueryProvider>{children}</QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
