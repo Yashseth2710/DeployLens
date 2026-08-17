@@ -7,15 +7,18 @@ from sqlalchemy.orm import Session
 from app.core.security import decrypt_token
 from app.models.repository import Repository
 from app.models.user import User
-from app.services import activity, history_sync, workflow_sync
+from app.services import history_sync, workflow_sync
 from app.services.github_api import GitHubError
 
-# How stale a repository is allowed to get before it is pulled again. A repository with
-# something running changes by the second and is worth the request; one that has been
-# quiet for a week is not, and every avoided call is GitHub rate limit and database wake
-# time we do not spend.
-LIVE_MAX_AGE = timedelta(seconds=25)
-IDLE_MAX_AGE = timedelta(minutes=3)
+# How stale a repository is allowed to get before it is pulled again while somebody is
+# watching. Ten seconds is what an open page feels as its refresh rate, and it is short
+# enough that there is nothing left for a manual control to do.
+#
+# The cost is real and worth stating: each pass spends two GitHub requests per
+# repository, so an open tab on three repositories runs at roughly 2100 of the 5000
+# requests an hour a token is allowed. Somebody tracking a dozen repositories would
+# exhaust it, and this is the number to raise when that happens.
+WATCHING_MAX_AGE = timedelta(seconds=10)
 
 # The scheduled run has no browser watching it, so it refreshes everything it finds
 # rather than deciding what looks interesting.
@@ -37,17 +40,19 @@ class RefreshReport:
     last_synced_at: datetime | None
 
 
-def refresh_user(db: Session, user: User, access_token: str, force: bool = False) -> RefreshReport:
+def refresh_user(db: Session, user: User, access_token: str) -> RefreshReport:
     """Pull whatever has gone stale for one signed-in user.
 
     This is what makes the product current without anybody pressing anything: the page
     asks for the activity board on a timer, and asking is itself what triggers the pull.
-    Throttling lives here rather than in the client so a second open tab costs nothing.
+    Throttling lives here rather than in the client so a second open tab costs nothing,
+    and it is the only reason there is no manual control — a throttle short enough to
+    feel immediate leaves nothing for a button to do.
     """
     repositories = list(
         db.scalars(select(Repository).where(Repository.user_id == user.id).order_by(Repository.id))
     )
-    return _refresh(db, repositories, access_token, force=force, idle_max_age=IDLE_MAX_AGE)
+    return _refresh(db, repositories, access_token, max_age=WATCHING_MAX_AGE)
 
 
 def refresh_everyone(db: Session) -> RefreshReport:
@@ -61,9 +66,7 @@ def refresh_everyone(db: Session) -> RefreshReport:
             # A token we can no longer read is a sign-in problem for that user alone.
             continue
         repositories = list(db.scalars(select(Repository).where(Repository.user_id == user.id)))
-        totals = _add(
-            totals, _refresh(db, repositories, token, force=False, idle_max_age=CRON_MAX_AGE)
-        )
+        totals = _add(totals, _refresh(db, repositories, token, max_age=CRON_MAX_AGE))
     return totals
 
 
@@ -72,13 +75,12 @@ def _refresh(
     repositories: list[Repository],
     access_token: str,
     *,
-    force: bool,
-    idle_max_age: timedelta,
+    max_age: timedelta,
 ) -> RefreshReport:
     synced = skipped = failed = runs_added = deployments_added = pull_requests = 0
 
     for repository in repositories:
-        if not force and not _is_stale(db, repository, idle_max_age):
+        if not _is_stale(repository, max_age):
             skipped += 1
             continue
         try:
@@ -97,7 +99,7 @@ def _refresh(
         # Pull requests and commit totals move on a different clock from workflow runs.
         # Reading them at the run cadence would spend most of its requests confirming
         # that a merged pull request is still merged.
-        if _history_is_stale(repository, force=force):
+        if _history_is_stale(repository):
             try:
                 history = history_sync.sync_history(db, repository, access_token)
             except GitHubError:
@@ -117,15 +119,14 @@ def _refresh(
     )
 
 
-def _is_stale(db: Session, repository: Repository, idle_max_age: timedelta) -> bool:
+def _is_stale(repository: Repository, max_age: timedelta) -> bool:
     if repository.last_synced_at is None:
         return True
-    max_age = LIVE_MAX_AGE if activity.has_live_run(db, repository.id) else idle_max_age
     return datetime.now(UTC) - repository.last_synced_at >= max_age
 
 
-def _history_is_stale(repository: Repository, force: bool) -> bool:
-    if force or repository.history_synced_at is None:
+def _history_is_stale(repository: Repository) -> bool:
+    if repository.history_synced_at is None:
         return True
     return datetime.now(UTC) - repository.history_synced_at >= HISTORY_MAX_AGE
 

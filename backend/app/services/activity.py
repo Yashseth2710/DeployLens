@@ -119,21 +119,5 @@ def _deployments(db: Session, user_id: UUID) -> list[ActivityItem]:
     ]
 
 
-def has_live_run(db: Session, repository_id: UUID) -> bool:
-    """Whether this repository is worth checking often. A repository with something
-    running changes by the second; one that has been quiet for a week does not."""
-    return (
-        db.scalar(
-            select(WorkflowRun.id)
-            .where(
-                WorkflowRun.repository_id == repository_id,
-                WorkflowRun.status.not_in(SETTLED_RUN_STATUSES),
-            )
-            .limit(1)
-        )
-        is not None
-    )
-
-
 def _grace_cutoff() -> ColumnElement[Any]:
     return func.now() - func.make_interval(0, 0, 0, 0, 0, SETTLED_GRACE_MINUTES)

@@ -7,33 +7,28 @@ from app.schemas.activity import ActivityBoardOut
 from app.services import activity, autosync
 
 # What the page waits before asking again. Sent by the server rather than fixed in the
-# client so the two cadences cannot drift apart: something running is worth watching
-# closely, and an idle account is not worth waking the database for every few seconds.
-LIVE_POLL_SECONDS = 10
-IDLE_POLL_SECONDS = 45
+# client so this and the staleness window in autosync cannot drift apart — a poll slower
+# than the throttle would make the throttle the real refresh rate, silently.
+POLL_SECONDS = 10
 
 router = APIRouter(prefix="/api/activity", tags=["activity"])
 
 
 @router.post("", response_model=ActivityBoardOut)
-def refresh(
-    user: CurrentUser, db: DbSession, token: GitHubToken, force: bool = False
-) -> dict[str, Any]:
+def refresh(user: CurrentUser, db: DbSession, token: GitHubToken) -> dict[str, Any]:
     """Read the board, and pull anything stale while we are here.
 
-    Asking is what keeps the data current — there is no button in this path. `force`
-    is the manual recovery the "Sync now" control uses when someone wants to be sure
-    rather than wait for the throttle.
+    Asking is what keeps the data current, and asking happens on a timer — this is the
+    only path data arrives by while somebody is watching, so there is nothing to press.
     """
-    report = autosync.refresh_user(db, user, token, force=force)
+    report = autosync.refresh_user(db, user, token)
     items = activity.board(db, user.id)
-    live = [item for item in items if item.live]
 
     return {
         "items": items,
-        "live_count": len(live),
+        "live_count": sum(1 for item in items if item.live),
         "last_synced_at": report.last_synced_at,
         "synced": report.synced,
         "failed": report.failed,
-        "poll_seconds": LIVE_POLL_SECONDS if live else IDLE_POLL_SECONDS,
+        "poll_seconds": POLL_SECONDS,
     }
