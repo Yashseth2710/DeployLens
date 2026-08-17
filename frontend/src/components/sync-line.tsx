@@ -20,15 +20,22 @@ export function SyncLine({
   className?: string;
 }) {
   const sync = useSyncNow();
+  const broken = failed > 0;
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-2", className)}>
-      <span className="label !tracking-[0.08em]">
-        {failed > 0
+    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1", className)}>
+      <span
+        className={cn(
+          "label inline-flex items-center gap-2 !tracking-[0.08em]",
+          broken && "!text-hold",
+        )}
+      >
+        {broken ? null : <WatchMark />}
+        {broken
           ? `${failed} repositor${failed === 1 ? "y" : "ies"} could not be read`
           : lastSyncedAt
-            ? `Synced ${formatWhen(lastSyncedAt)}`
-            : "Not synced yet"}
+            ? `Auto-syncing · read ${formatWhen(lastSyncedAt)}`
+            : "Auto-syncing · first read on the way"}
       </span>
       <Button
         variant="quiet"
@@ -36,8 +43,22 @@ export function SyncLine({
         disabled={sync.isPending}
         onClick={() => sync.mutate()}
       >
-        {sync.isPending ? "Syncing…" : "Sync now"}
+        {sync.isPending ? "Reading…" : "Read now"}
       </Button>
     </div>
+  );
+}
+
+/**
+ * A steady pulse on the sync line. The page collects on its own, and this is the
+ * only thing that says so — without it the button beside it reads as the way the
+ * data arrives rather than as the override it is.
+ */
+function WatchMark() {
+  return (
+    <span
+      className="bg-ok/70 inline-block h-1.5 w-1.5 animate-pulse rounded-full"
+      aria-hidden="true"
+    />
   );
 }
