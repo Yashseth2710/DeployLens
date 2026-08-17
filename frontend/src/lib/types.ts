@@ -70,6 +70,26 @@ export type UptimeMetrics = {
   average_response_time_ms: number | null;
 };
 
+export type HealthCheck = {
+  id: string;
+  repository_id: string;
+  url: string;
+  interval_minutes: number;
+  expected_status: number;
+  enabled: boolean;
+  created_at: string;
+};
+
+export type HealthResult = {
+  id: string;
+  health_check_id: string;
+  status: "up" | "down";
+  status_code: number | null;
+  response_time_ms: number | null;
+  error_message: string | null;
+  checked_at: string;
+};
+
 export type PipelineMetrics = {
   runs: number;
   succeeded: number;

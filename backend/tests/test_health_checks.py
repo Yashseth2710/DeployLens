@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -6,8 +8,18 @@ from sqlalchemy.orm import Session
 from app.models.health import HealthCheck
 from app.models.repository import Repository
 from app.models.user import User
+from app.services import probes
 
 URL = "https://deploylens.example.com/health"
+
+
+@pytest.fixture(autouse=True)
+def probed(monkeypatch: pytest.MonkeyPatch) -> list[UUID]:
+    """Creating a check schedules a probe, which would otherwise reach the network
+    from every test in this file. Recording the call is also what the tests assert."""
+    asked: list[UUID] = []
+    monkeypatch.setattr(probes, "probe_once", asked.append, raising=True)
+    return asked
 
 
 @pytest.fixture
@@ -31,6 +43,12 @@ def create(client: TestClient, repository: Repository, **overrides):
     return client.post("/api/health-checks", json=body)
 
 
+def _checks(db: Session, repository: Repository) -> list[HealthCheck]:
+    """Scoped to this test's own repository. The suite runs against a database a
+    developer is also monitoring with, so a bare select reads their endpoints."""
+    return list(db.scalars(select(HealthCheck).where(HealthCheck.repository_id == repository.id)))
+
+
 def test_a_check_starts_hourly_enabled_and_expecting_200(
     client: TestClient, db: Session, signed_in: User, repository: Repository
 ):
@@ -42,7 +60,7 @@ def test_a_check_starts_hourly_enabled_and_expecting_200(
     assert body["interval_minutes"] == 60
     assert body["expected_status"] == 200
     assert body["enabled"] is True
-    assert db.scalar(select(HealthCheck)) is not None
+    assert _checks(db, repository) != []
 
 
 def test_the_same_url_is_not_checked_twice_for_one_repository(
@@ -111,6 +129,31 @@ def test_a_check_can_be_retargeted_and_paused(
     assert body["interval_minutes"] == 60
 
 
+def test_a_new_endpoint_is_read_without_waiting_for_the_schedule(
+    client: TestClient, signed_in: User, repository: Repository, probed: list[UUID]
+):
+    """The runner fires hourly, so an endpoint added now would read as unmeasured for
+    an hour — which is indistinguishable from the URL having been rejected."""
+    check_id = create(client, repository).json()["id"]
+
+    assert [str(asked) for asked in probed] == [check_id]
+
+
+def test_a_corrected_url_is_read_but_a_changed_interval_is_not(
+    client: TestClient, signed_in: User, repository: Repository, probed: list[UUID]
+):
+    """A typo fixed here should clear the failure it caused, rather than leaving the
+    old address's result standing for another hour. Retiming is not a new target."""
+    check_id = create(client, repository).json()["id"]
+    probed.clear()
+
+    client.patch(f"/api/health-checks/{check_id}", json={"interval_minutes": 120})
+    assert probed == []
+
+    client.patch(f"/api/health-checks/{check_id}", json={"url": f"{URL}/v2"})
+    assert [str(asked) for asked in probed] == [check_id]
+
+
 def test_an_update_cannot_collide_with_another_url_on_the_same_repository(
     client: TestClient, signed_in: User, repository: Repository
 ):
@@ -150,7 +193,7 @@ def test_deleting_a_check_removes_it(
     check_id = create(client, repository).json()["id"]
 
     assert client.delete(f"/api/health-checks/{check_id}").status_code == 204
-    assert db.scalar(select(HealthCheck)) is None
+    assert _checks(db, repository) == []
 
 
 def test_checks_on_another_users_repository_are_out_of_reach(

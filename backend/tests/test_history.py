@@ -199,7 +199,8 @@ def test_commit_stats_are_skipped_when_only_pull_requests_are_due(
         raising=True,
     )
 
-    history_sync.sync_history(db, repository, "token", with_commits=False)
+    payload = history_sync.fetch("token", repository.full_name, pages=1, with_commits=False)
+    history_sync.record(db, repository, payload)
 
     assert asked == ["pulls"]
 

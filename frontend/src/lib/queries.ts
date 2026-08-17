@@ -9,6 +9,8 @@ import type {
   AvailableRepository,
   ConnectedRepository,
   DeploymentSummary,
+  HealthCheck,
+  HealthResult,
   Overview,
   PullRequestRow,
   RepositoryDetail,
@@ -32,6 +34,8 @@ export const keys = {
   runs: (limit: number, repositoryId?: string) => ["runs", limit, repositoryId ?? "all"] as const,
   pullRequests: (limit: number, repositoryId?: string) =>
     ["pull-requests", limit, repositoryId ?? "all"] as const,
+  healthChecks: (repositoryId?: string) => ["health-checks", repositoryId ?? "all"] as const,
+  healthResults: (checkId: string) => ["health-checks", "results", checkId] as const,
 };
 
 export function useSession() {
@@ -233,6 +237,92 @@ export function usePullRequests(limit: number, enabled: boolean, repositoryId?: 
     enabled,
     retry: false,
   });
+}
+
+/**
+ * The endpoints being probed for a project. Uptime is a quarter of the health
+ * score, and it is the one input the developer supplies rather than GitHub, so
+ * this is the only reading in the product that cannot fill itself in.
+ */
+export function useHealthChecks(repositoryId: string) {
+  return useQuery({
+    queryKey: keys.healthChecks(repositoryId),
+    queryFn: () =>
+      api<HealthCheck[]>(`/api/health-checks?repository_id=${encodeURIComponent(repositoryId)}`),
+    retry: false,
+  });
+}
+
+/**
+ * A check created a moment ago is probed straight away by the API, so this keeps
+ * asking until that first result lands and then settles. Waiting on the hourly
+ * runner instead would leave a new endpoint looking rejected.
+ *
+ * `awaitingFirst` is what bounds it: once a check has been around longer than that
+ * first probe could take, an empty history is the answer rather than something to
+ * keep waiting for.
+ */
+export function useHealthResults(checkId: string, limit: number, awaitingFirst: boolean) {
+  return useQuery({
+    queryKey: keys.healthResults(checkId),
+    queryFn: () => api<HealthResult[]>(`/api/health-checks/${checkId}/results?limit=${limit}`),
+    retry: false,
+    refetchInterval: (query) => (awaitingFirst && !query.state.data?.length ? 2000 : false),
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useAddHealthCheck(repositoryId: string) {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: (endpoint: { url: string; expected_status: number; interval_minutes: number }) =>
+      api<HealthCheck>("/api/health-checks", {
+        method: "POST",
+        body: JSON.stringify({ repository_id: repositoryId, ...endpoint }),
+      }),
+    onSuccess: () => settleHealth(client),
+  });
+}
+
+export function useUpdateHealthCheck() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, ...changes }: { id: string } & Partial<HealthCheck>) =>
+      api<HealthCheck>(`/api/health-checks/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(changes),
+      }),
+    onSuccess: (check) => {
+      settleHealth(client);
+      void client.invalidateQueries({ queryKey: keys.healthResults(check.id) });
+    },
+  });
+}
+
+export function useRemoveHealthCheck() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: (checkId: string) =>
+      api<void>(`/api/health-checks/${checkId}`, { method: "DELETE" }),
+    onSuccess: (_removed, checkId) => {
+      // Its results went with it, so the cached history is dropped rather than left
+      // to be re-asked for and answered with a 404.
+      client.removeQueries({ queryKey: keys.healthResults(checkId) });
+      settleHealth(client);
+    },
+  });
+}
+
+/**
+ * Uptime feeds the health score, so changing what is monitored changes a number on
+ * every page that shows one.
+ */
+function settleHealth(client: ReturnType<typeof useQueryClient>): void {
+  void client.invalidateQueries({ queryKey: ["health-checks"] });
+  void client.invalidateQueries({ queryKey: ["analytics"] });
 }
 
 function scoped(limit: number, repositoryId?: string): string {
