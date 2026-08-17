@@ -1,3 +1,4 @@
+from contextlib import suppress
 from dataclasses import asdict
 from uuid import UUID
 
@@ -12,7 +13,8 @@ from app.schemas.repository import (
     ConnectedRepository,
     ConnectRepositoryRequest,
 )
-from app.services import github_api, workflow_sync
+from app.services import github_api, webhooks, workflow_sync
+from app.services.github_api import GitHubError
 from app.services.workflow_sync import SyncResult
 
 router = APIRouter(prefix="/api/repositories", tags=["repositories"])
@@ -67,6 +69,8 @@ def connect(
     db.add(repository)
     db.commit()
     db.refresh(repository)
+
+    _ensure_webhook(token, repository)
     return repository
 
 
@@ -78,19 +82,48 @@ def sync(repository_id: UUID, user: CurrentUser, db: DbSession, token: GitHubTok
     if repository is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such connected repository")
 
-    return workflow_sync.sync_repository(db, repository, token)
+    result = workflow_sync.sync_repository(db, repository, token)
+    _ensure_webhook(token, repository)
+    return result
 
 
 @router.delete("/{repository_id}", status_code=status.HTTP_204_NO_CONTENT)
-def disconnect(repository_id: UUID, user: CurrentUser, db: DbSession) -> None:
+def disconnect(repository_id: UUID, user: CurrentUser, db: DbSession, token: GitHubToken) -> None:
     """Cascades to the runs, deployments and health checks collected for it — a
     disconnected repository leaves nothing behind to reconnect into."""
     repository = _owned(db, user.id, repository_id=repository_id)
     if repository is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such connected repository")
 
+    if not _connected_elsewhere(db, repository):
+        # Disconnecting is a local decision. A hook left behind because GitHub was
+        # unreachable only costs deliveries that no longer match a repository.
+        with suppress(GitHubError):
+            webhooks.unregister(token, repository)
+
     db.delete(repository)
     db.commit()
+
+
+def _ensure_webhook(token: str, repository: Repository) -> None:
+    """A repository is connected whether or not the hook could be created, because the
+    history is still reachable by syncing. Every later sync retries the registration,
+    so a GitHub outage during connect costs live updates until the next refresh rather
+    than leaving the repository permanently unhooked."""
+    with suppress(GitHubError):
+        webhooks.register(token, repository)
+
+
+def _connected_elsewhere(db: DbSession, repository: Repository) -> bool:
+    """Two accounts can track the same repository through one hook, so the hook only
+    goes when the last of them disconnects."""
+    other = db.scalar(
+        select(Repository.id).where(
+            Repository.github_repo_id == repository.github_repo_id,
+            Repository.id != repository.id,
+        )
+    )
+    return other is not None
 
 
 def _owned(

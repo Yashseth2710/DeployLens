@@ -77,6 +77,23 @@ def get(http: httpx.Client, path: str, **params: Any) -> Any:
     return response.json()
 
 
+def post(http: httpx.Client, path: str, body: dict[str, Any]) -> Any:
+    try:
+        response = http.post(path, json=body)
+    except httpx.HTTPError as exc:
+        raise GitHubError(str(exc)) from exc
+    _raise_for_status(response)
+    return response.json()
+
+
+def delete(http: httpx.Client, path: str) -> None:
+    try:
+        response = http.delete(path)
+    except httpx.HTTPError as exc:
+        raise GitHubError(str(exc)) from exc
+    _raise_for_status(response)
+
+
 def list_repositories(access_token: str) -> list[GitHubRepository]:
     """Sorted by last push so the repositories worth connecting come first. Paging stops
     at MAX_PAGES; nobody picking three to ten projects needs to scroll past 500."""
@@ -118,6 +135,50 @@ def list_workflow_runs(
             if len(batch) < PER_PAGE:
                 break
     return runs
+
+
+def create_webhook(access_token: str, full_name: str, callback_url: str, secret: str) -> None:
+    """Only `workflow_run` is subscribed. Every other event would cost a delivery, a
+    row and a signature check to reach the same conclusion: nothing to record.
+
+    A repository reconnected after being dropped still carries its old hook, so an
+    existing one is left alone rather than creating a second delivery of everything.
+    """
+    with client(access_token) as http:
+        if _webhook_id(http, full_name, callback_url) is not None:
+            return
+        post(
+            http,
+            f"/repos/{full_name}/hooks",
+            {
+                "name": "web",
+                "active": True,
+                "events": ["workflow_run"],
+                "config": {
+                    "url": callback_url,
+                    "content_type": "json",
+                    "secret": secret,
+                    "insecure_ssl": "0",
+                },
+            },
+        )
+
+
+def delete_webhook(access_token: str, full_name: str, callback_url: str) -> None:
+    """Found by its callback URL rather than a stored id, which keeps the hook out of
+    the schema and off the disconnect path when GitHub has already forgotten it."""
+    with client(access_token) as http:
+        hook_id = _webhook_id(http, full_name, callback_url)
+        if hook_id is not None:
+            delete(http, f"/repos/{full_name}/hooks/{hook_id}")
+
+
+def _webhook_id(http: httpx.Client, full_name: str, callback_url: str) -> int | None:
+    for hook in get(http, f"/repos/{full_name}/hooks", per_page=PER_PAGE):
+        if hook.get("config", {}).get("url") == callback_url:
+            hook_id: int = hook["id"]
+            return hook_id
+    return None
 
 
 def as_workflow_run(payload: dict[str, Any]) -> GitHubWorkflowRun:

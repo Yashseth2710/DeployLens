@@ -72,6 +72,7 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/deploylens
           SESSION_SECRET: ci-session-secret
           TOKEN_ENCRYPTION_KEY: Spbw1tFaTMoOEPbHSYTbiIbXcujUBbayNxTTOtASKjY=
+          GITHUB_WEBHOOK_SECRET: ci-webhook-secret
           APP_URL: http://localhost:3000
         run: pytest
 
