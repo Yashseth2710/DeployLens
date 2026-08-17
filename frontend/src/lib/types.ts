@@ -204,6 +204,34 @@ export type RepositoryDetail = {
   first_activity_at: string | null;
 };
 
+export type FindingKind = "streak" | "flaky" | "chronic" | "branch" | "slowdown";
+
+export type Finding = {
+  kind: FindingKind;
+  subject: string;
+  detail: string;
+  runs: number;
+  failed: number;
+  last_seen_at: string | null;
+  run_url: string | null;
+};
+
+export type RepositoryFindings = {
+  repository_id: string;
+  full_name: string;
+  findings: Finding[];
+};
+
+export type Insights = {
+  window_days: number;
+  findings: Finding[];
+};
+
+export type Attention = {
+  window_days: number;
+  repositories: RepositoryFindings[];
+};
+
 export type Overview = {
   window_days: number;
   connected_repositories: number;

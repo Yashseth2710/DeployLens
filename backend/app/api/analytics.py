@@ -7,14 +7,24 @@ from sqlalchemy import select
 from app.api.deps import CurrentUser, DbSession
 from app.models.repository import Repository
 from app.models.workflow import WorkflowRun
-from app.schemas.analytics import OverviewOut, RepositoryDetailOut, TrendOut
-from app.services import metrics
+from app.schemas.analytics import (
+    AttentionOut,
+    InsightsOut,
+    OverviewOut,
+    RepositoryDetailOut,
+    TrendOut,
+)
+from app.services import insights, metrics
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 # A finished project has no activity this month; reading its whole life is the
 # point of connecting it, so the ceiling is a year rather than a quarter.
 WindowDays = Annotated[int, Query(ge=1, le=365)]
+
+# The dashboard band names what is worst, not everything that is wrong. Two lines a
+# project keeps it a summary that points somewhere rather than a second report.
+ATTENTION_PER_REPOSITORY = 2
 
 
 @router.get("/overview", response_model=OverviewOut)
@@ -87,6 +97,36 @@ def trends(
         "window_days": days,
         "deployments": metrics.deployment_series(db, repository_ids, days),
         "uptime": metrics.uptime_series(db, repository_ids, days),
+    }
+
+
+@router.get("/repositories/{repository_id}/insights", response_model=InsightsOut)
+def repository_insights(
+    repository_id: UUID, user: CurrentUser, db: DbSession, days: WindowDays = 30
+) -> dict[str, Any]:
+    """What is going wrong in one project, and why it counts as wrong.
+
+    Kept off the detail response rather than folded into it: the breakdowns there are
+    counts, and this reads every run in the window to compare them against each other.
+    A page that wants the numbers should not pay for the reasoning.
+    """
+    owned = db.scalar(
+        select(Repository.id).where(Repository.id == repository_id, Repository.user_id == user.id)
+    )
+    if owned is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such connected repository")
+
+    return {"window_days": days, "findings": insights.findings_for(db, repository_id, days)}
+
+
+@router.get("/attention", response_model=AttentionOut)
+def attention(user: CurrentUser, db: DbSession, days: WindowDays = 30) -> dict[str, Any]:
+    """The same reading across every project, so the dashboard can say which one needs
+    looking at. Projects with nothing wrong are left out entirely — an empty list is
+    the good answer, and padding it with reassurance would bury the real rows."""
+    return {
+        "window_days": days,
+        "repositories": insights.across_repositories(db, user.id, days, ATTENTION_PER_REPOSITORY),
     }
 
 

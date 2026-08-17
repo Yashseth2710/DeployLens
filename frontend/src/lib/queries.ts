@@ -6,11 +6,13 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type {
   ActivityBoard,
+  Attention,
   AvailableRepository,
   ConnectedRepository,
   DeploymentSummary,
   HealthCheck,
   HealthResult,
+  Insights,
   Overview,
   PullRequestRow,
   RepositoryDetail,
@@ -34,6 +36,9 @@ export const keys = {
   runs: (limit: number, repositoryId?: string) => ["runs", limit, repositoryId ?? "all"] as const,
   pullRequests: (limit: number, repositoryId?: string) =>
     ["pull-requests", limit, repositoryId ?? "all"] as const,
+  insights: (repositoryId: string, days: number) =>
+    ["analytics", "insights", repositoryId, days] as const,
+  attention: (days: number) => ["analytics", "attention", days] as const,
   healthChecks: (repositoryId?: string) => ["health-checks", repositoryId ?? "all"] as const,
   healthResults: (checkId: string) => ["health-checks", "results", checkId] as const,
 };
@@ -234,6 +239,38 @@ export function usePullRequests(limit: number, enabled: boolean, repositoryId?: 
   return useQuery({
     queryKey: keys.pullRequests(limit, repositoryId),
     queryFn: () => api<PullRequestRow[]>(`/api/pull-requests?${scoped(limit, repositoryId)}`),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * What is going wrong in one project. Read separately from the detail because it
+ * compares every run in the window against the others, and a page that only wants
+ * the counts should not wait for that.
+ *
+ * Both this and the dashboard band key under `analytics`, so a sync that brought
+ * something back re-reads them with everything else rather than leaving a finding
+ * on screen that the newest run already answered.
+ */
+export function useInsights(repositoryId: string, days: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.insights(repositoryId, days),
+    queryFn: () =>
+      api<Insights>(`/api/analytics/repositories/${repositoryId}/insights?days=${days}`),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * The same reading across every project, for the dashboard band that says which one
+ * to open. Projects with nothing wrong are not in the response at all.
+ */
+export function useAttention(days: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.attention(days),
+    queryFn: () => api<Attention>(`/api/analytics/attention?days=${days}`),
     enabled,
     retry: false,
   });
