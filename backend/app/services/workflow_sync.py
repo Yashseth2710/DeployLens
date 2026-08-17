@@ -74,6 +74,8 @@ def _upsert_run(db: Session, repository: Repository, run: GitHubWorkflowRun) -> 
         "commit_sha": run.commit_sha,
         "status": run.status,
         "conclusion": run.conclusion,
+        "event": run.event,
+        "actor": run.actor,
         "started_at": run.started_at,
         "completed_at": run.completed_at,
         "duration_seconds": duration_of(run.started_at, run.completed_at),
@@ -85,8 +87,17 @@ def _upsert_run(db: Session, repository: Repository, run: GitHubWorkflowRun) -> 
         .on_conflict_do_update(
             constraint="uq_workflow_runs_repo_run",
             set_={
+                # event and actor are refreshed too, so a resync backfills rows that
+                # were ingested before those columns existed.
                 key: values[key]
-                for key in ("status", "conclusion", "completed_at", "duration_seconds")
+                for key in (
+                    "status",
+                    "conclusion",
+                    "completed_at",
+                    "duration_seconds",
+                    "event",
+                    "actor",
+                )
             },
         )
         .returning(WorkflowRun.id)

@@ -80,12 +80,11 @@ def test_a_completed_run_arrives_as_a_deployment(
     assert response.status_code == 202
     assert response.json() == {"result": "recorded"}
 
-    run = db.scalar(select(WorkflowRun))
+    run = db.scalar(select(WorkflowRun).where(WorkflowRun.github_run_id == 77001))
     assert run is not None
-    assert run.github_run_id == 77001
     assert run.duration_seconds == 180
 
-    deployment = db.scalar(select(Deployment))
+    deployment = db.scalar(select(Deployment).where(Deployment.workflow_run_id == run.id))
     assert deployment is not None
     assert deployment.status == "success"
     assert deployment.environment == "production"
@@ -110,7 +109,7 @@ def test_a_later_delivery_for_the_same_run_updates_it(
 
     deliver(client, workflow_run_event(), delivery="d-4")
 
-    runs = db.scalars(select(WorkflowRun)).all()
+    runs = db.scalars(select(WorkflowRun).where(WorkflowRun.repository_id == repository.id)).all()
     assert len(runs) == 1
     assert runs[0].conclusion == "success"
     assert runs[0].duration_seconds == 180
@@ -172,7 +171,7 @@ def test_a_tampered_body_no_longer_matches_its_signature(
     )
 
     assert response.status_code == 401
-    assert db.scalar(select(WorkflowRun)) is None
+    assert db.scalar(select(WorkflowRun).where(WorkflowRun.repository_id == repository.id)) is None
 
 
 def test_a_ping_is_answered_without_being_stored(client: TestClient, db: Session):
@@ -188,10 +187,10 @@ def test_an_event_we_do_not_act_on_is_still_kept(
     response = deliver(client, workflow_run_event(), delivery="d-10", event="push")
 
     assert response.json() == {"result": "ignored"}
-    event = db.scalar(select(WebhookEvent))
+    event = db.scalar(select(WebhookEvent).where(WebhookEvent.github_delivery_id == "d-10"))
     assert event.event_type == "push"
     assert event.processed is False
-    assert db.scalar(select(WorkflowRun)) is None
+    assert db.scalar(select(WorkflowRun).where(WorkflowRun.repository_id == repository.id)) is None
 
 
 def test_a_delivery_for_a_repository_nobody_connected_is_kept_but_not_applied(
@@ -203,8 +202,9 @@ def test_a_delivery_for_a_repository_nobody_connected_is_kept_but_not_applied(
     response = deliver(client, payload, delivery="d-11")
 
     assert response.json() == {"result": "unknown_repository"}
-    assert db.scalar(select(WebhookEvent)).repository_id is None
-    assert db.scalar(select(WorkflowRun)) is None
+    event = db.scalar(select(WebhookEvent).where(WebhookEvent.github_delivery_id == "d-11"))
+    assert event.repository_id is None
+    assert db.scalar(select(WorkflowRun).where(WorkflowRun.github_run_id == 77001)) is None
 
 
 def test_a_delivery_without_its_headers_is_rejected(client: TestClient):

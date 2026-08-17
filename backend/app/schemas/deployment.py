@@ -44,3 +44,23 @@ class SyncSummary(BaseModel):
     runs_seen: int
     runs_added: int
     deployments_added: int
+
+
+class WorkflowRunRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    repository_id: UUID
+    repository_full_name: str
+    github_run_id: int
+    workflow_name: str
+    branch: str | None
+    commit_sha: str | None
+    status: str
+    conclusion: str | None
+    event: str | None
+    actor: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    duration_seconds: int | None
+    html_url: str | None

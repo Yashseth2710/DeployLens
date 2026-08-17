@@ -76,7 +76,7 @@ def test_connecting_a_repository_the_token_cannot_see_is_refused(
     response = connect(client, 424242)
 
     assert response.status_code == 404
-    assert db.scalar(select(Repository)) is None
+    assert db.scalar(select(Repository).where(Repository.user_id == signed_in.id)) is None
 
 
 def test_available_marks_the_repositories_already_connected(
@@ -130,7 +130,7 @@ def test_disconnecting_removes_the_repository(
     repository_id = connect(client, DASHBOARD["id"]).json()["id"]
 
     assert client.delete(f"/api/repositories/{repository_id}").status_code == 204
-    assert db.scalar(select(Repository)) is None
+    assert db.scalar(select(Repository).where(Repository.user_id == signed_in.id)) is None
 
 
 def test_one_user_cannot_disconnect_another_users_repository(
@@ -180,4 +180,4 @@ def test_connecting_still_succeeds_when_the_hook_cannot_be_created(
     response = connect(client, DASHBOARD["id"])
 
     assert response.status_code == 201
-    assert db.scalar(select(Repository)) is not None
+    assert db.scalar(select(Repository).where(Repository.user_id == signed_in.id)) is not None

@@ -11,7 +11,9 @@ from app.services import metrics
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
-WindowDays = Annotated[int, Query(ge=1, le=90)]
+# A finished project has no activity this month; reading its whole life is the
+# point of connecting it, so the ceiling is a year rather than a quarter.
+WindowDays = Annotated[int, Query(ge=1, le=365)]
 
 
 @router.get("/overview", response_model=OverviewOut)
@@ -21,13 +23,15 @@ def overview(user: CurrentUser, db: DbSession, days: WindowDays = 30) -> dict[st
     repository_ids = _owned_ids(db, user.id)
     delivery = metrics.delivery_metrics(db, repository_ids, days)
     uptime = metrics.uptime_metrics(db, repository_ids, days)
+    pipeline = metrics.pipeline_metrics(db, repository_ids, days)
 
     return {
         "window_days": days,
         "connected_repositories": len(repository_ids),
         "delivery": delivery,
+        "pipeline": pipeline,
         "uptime": uptime,
-        "health_score": metrics.health_score(delivery, uptime),
+        "health_score": metrics.health_score(delivery, uptime, pipeline),
         "repositories": metrics.per_repository(db, user.id, days),
     }
 

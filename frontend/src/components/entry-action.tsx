@@ -22,8 +22,8 @@ export function EntryAction() {
   if (session.data) {
     return (
       <div className="flex flex-col items-start gap-3">
-        <ButtonLink href="/repositories" variant="primary">
-          Open your repositories
+        <ButtonLink href="/dashboard" variant="primary">
+          Open your dashboard
         </ButtonLink>
         <span className="label !tracking-[0.1em]">
           Signed in as {session.data.username} · connect a project to start collecting runs

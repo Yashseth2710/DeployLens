@@ -46,6 +46,12 @@ class WorkflowRun(Base, PrimaryKeyMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     conclusion: Mapped[str | None] = mapped_column(String(30))
 
+    # What triggered the run: push, pull_request, schedule, workflow_dispatch. Kept
+    # because "did CI pass on the PR" and "did the push to main build" are different
+    # questions, and only this column can tell them apart.
+    event: Mapped[str | None] = mapped_column(String(40))
+    actor: Mapped[str | None] = mapped_column(String(255))
+
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Denormalised from the timestamps so duration averages do not recompute per row.

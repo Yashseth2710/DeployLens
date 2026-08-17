@@ -7,6 +7,7 @@ from app.api import (
     deployments,
     health_checks,
     repositories,
+    runs,
     webhooks,
 )
 from app.api.errors import install_github_error_handlers
@@ -17,6 +18,7 @@ install_github_error_handlers(app)
 app.include_router(auth.router)
 app.include_router(repositories.router)
 app.include_router(deployments.router)
+app.include_router(runs.router)
 app.include_router(health_checks.router)
 app.include_router(analytics.router)
 app.include_router(webhooks.router)

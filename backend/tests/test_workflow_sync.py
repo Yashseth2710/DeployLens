@@ -66,13 +66,13 @@ def test_sync_records_the_run_and_its_deployment(
     assert response.status_code == 200
     assert response.json() == {"runs_seen": 1, "runs_added": 1, "deployments_added": 1}
 
-    run = db.scalar(select(WorkflowRun))
+    run = _only_run(db, repository)
     assert run is not None
     assert run.github_run_id == 55501
     assert run.conclusion == "success"
     assert run.duration_seconds == 270
 
-    deployment = db.scalar(select(Deployment))
+    deployment = _only_deployment(db, repository)
     assert deployment is not None
     assert deployment.workflow_run_id == run.id
     assert deployment.environment == "production"
@@ -90,9 +90,10 @@ def test_syncing_twice_updates_rather_than_duplicates(
     second = sync(client, repository)
 
     assert second.json()["runs_added"] == 0
-    assert len(db.scalars(select(WorkflowRun)).all()) == 1
-    assert db.scalar(select(WorkflowRun)).conclusion == "failure"
-    assert db.scalar(select(Deployment)).status == "failure"
+    runs = db.scalars(select(WorkflowRun).where(WorkflowRun.repository_id == repository.id)).all()
+    assert len(runs) == 1
+    assert _only_run(db, repository).conclusion == "failure"
+    assert _only_deployment(db, repository).status == "failure"
 
 
 def test_a_run_still_in_flight_has_no_duration(
@@ -104,11 +105,11 @@ def test_a_run_still_in_flight_has_no_duration(
 
     sync(client, repository)
 
-    run = db.scalar(select(WorkflowRun))
+    run = _only_run(db, repository)
     assert run.status == "in_progress"
     assert run.completed_at is None
     assert run.duration_seconds is None
-    assert db.scalar(select(Deployment)).status == "in_progress"
+    assert _only_deployment(db, repository).status == "in_progress"
 
 
 def test_test_and_lint_runs_are_recorded_but_are_not_deployments(
@@ -127,7 +128,7 @@ def test_test_and_lint_runs_are_recorded_but_are_not_deployments(
     response = sync(client, repository)
 
     assert response.json() == {"runs_seen": 3, "runs_added": 3, "deployments_added": 1}
-    assert db.scalar(select(Deployment)).commit_sha == "a" * 40
+    assert _only_deployment(db, repository).commit_sha == "a" * 40
 
 
 def test_a_deployment_off_the_default_branch_is_not_production(
@@ -139,7 +140,7 @@ def test_a_deployment_off_the_default_branch_is_not_production(
 
     sync(client, repository)
 
-    assert db.scalar(select(Deployment)).environment == "staging"
+    assert _only_deployment(db, repository).environment == "staging"
 
 
 def test_sync_refuses_a_repository_owned_by_someone_else(
@@ -165,3 +166,13 @@ def test_sync_reports_a_revoked_token(
     )
 
     assert sync(client, repository).status_code == 401
+
+
+def _only_run(db: Session, repository: Repository) -> WorkflowRun:
+    """Scoped to this test's own repository: the suite runs against a database that
+    may already hold real rows, so a bare select would read someone else's history."""
+    return db.scalar(select(WorkflowRun).where(WorkflowRun.repository_id == repository.id))
+
+
+def _only_deployment(db: Session, repository: Repository) -> Deployment:
+    return db.scalar(select(Deployment).where(Deployment.repository_id == repository.id))
