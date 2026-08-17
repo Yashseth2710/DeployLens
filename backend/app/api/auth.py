@@ -14,11 +14,11 @@ from app.api.cookies import (
 )
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import get_settings
-from app.core.security import encrypt_token, issue_session
+from app.core.security import issue_session
 from app.models.user import User
 from app.schemas.user import UserProfile
-from app.services import github_oauth
-from app.services.github_oauth import GitHubAccount, GitHubAuthError
+from app.services import github_oauth, tokens
+from app.services.github_oauth import GitHubAccount, GitHubAuthError, TokenBundle
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -57,12 +57,12 @@ def complete_sign_in(
         return _failed_sign_in("invalid_state")
 
     try:
-        access_token = github_oauth.exchange_code(code)
-        account = github_oauth.fetch_account(access_token)
+        bundle = github_oauth.exchange_code(code)
+        account = github_oauth.fetch_account(bundle.access_token)
     except (GitHubAuthError, OSError):
         return _failed_sign_in("github_unavailable")
 
-    user = _upsert_user(db, account, access_token)
+    user = _upsert_user(db, account, bundle)
 
     response = RedirectResponse(_app_redirect(SIGNED_IN_PATH))
     set_session_cookie(response, issue_session(user.id))
@@ -86,8 +86,8 @@ def _failed_sign_in(reason: str) -> RedirectResponse:
     return response
 
 
-def _upsert_user(db: DbSession, account: GitHubAccount, access_token: str) -> User:
-    """Signing in again refreshes the profile and replaces the stored token, so a
+def _upsert_user(db: DbSession, account: GitHubAccount, bundle: TokenBundle) -> User:
+    """Signing in again refreshes the profile and replaces the stored tokens, so a
     revoked or rescoped grant is picked up without a second table."""
     user = db.scalar(select(User).where(User.github_id == account.github_id))
     if user is None:
@@ -97,7 +97,7 @@ def _upsert_user(db: DbSession, account: GitHubAccount, access_token: str) -> Us
     user.username = account.username
     user.email = account.email
     user.avatar_url = account.avatar_url
-    user.access_token_encrypted = encrypt_token(access_token)
+    tokens.store(db, user, bundle)
 
     db.commit()
     db.refresh(user)

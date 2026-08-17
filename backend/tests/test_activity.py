@@ -9,8 +9,23 @@ from app.models.user import User
 from app.models.workflow import Deployment, WorkflowRun
 from app.services import activity, autosync
 from app.services.github_api import GitHubRateLimitError
+from app.services.history_sync import HistoryResult
 
 NOW = datetime.now(UTC)
+
+
+@pytest.fixture(autouse=True)
+def _no_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """This file is about runs and the board. Pull request collection rides along in the
+    same pass and would otherwise reach the real GitHub with a fixture token."""
+    monkeypatch.setattr(
+        autosync.history_sync,
+        "sync_history",
+        lambda db, repository, token, with_commits=True: HistoryResult(
+            pull_requests_seen=0, commit_weeks=0
+        ),
+        raising=True,
+    )
 
 
 @pytest.fixture
@@ -169,7 +184,7 @@ def test_activity_endpoint_reports_the_live_board_and_its_poll_rate(
     body = client.post("/api/activity").json()
 
     assert body["live_count"] == 1
-    assert body["poll_seconds"] == 10
+    assert body["poll_seconds"] == 5
     assert body["items"][0]["live"] is True
 
 

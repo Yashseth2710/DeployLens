@@ -205,6 +205,10 @@ STATUS = {
 }
 
 
+def _status_reads(router) -> int:
+    return sum(1 for call in router.calls if call.request.url.path.endswith("/statuses"))
+
+
 @pytest.fixture
 def provider_deployments(actions):
     """Most projects ship through a hosting integration rather than a workflow, and
@@ -232,16 +236,41 @@ def test_a_deployment_made_by_the_host_is_recorded(
     assert deployment.workflow_run_id is None
 
 
-def test_resyncing_updates_a_host_deployment_rather_than_duplicating_it(
+def test_a_deployment_still_in_flight_is_updated_on_the_next_sync(
     client: TestClient, db: Session, signed_in: User, repository: Repository, provider_deployments
 ):
-    sync(client, repository)
+    """A build that was pending when we first saw it has to be read again — that is the
+    transition the live board exists to show."""
     provider_deployments.get(f"{API_URL}/repos/{FULL_NAME}/deployments/88001/statuses").respond(
-        json=[{**STATUS, "state": "error"}]
+        json=[{**STATUS, "state": "in_progress"}]
     )
+    sync(client, repository)
 
+    provider_deployments.get(f"{API_URL}/repos/{FULL_NAME}/deployments/88001/statuses").respond(
+        json=[{**STATUS, "state": "success"}]
+    )
     sync(client, repository)
 
     rows = db.scalars(select(Deployment).where(Deployment.github_deployment_id == 88001)).all()
     assert len(rows) == 1
-    assert rows[0].status == "error"
+    assert rows[0].status == "success"
+
+
+def test_a_deployment_that_already_succeeded_is_not_read_again(
+    client: TestClient, db: Session, signed_in: User, repository: Repository, provider_deployments
+):
+    """Each deployment status is its own request, so re-reading every one on every pass
+    turned a repository with thirty deployments into thirty one requests every few
+    seconds. A deployment that succeeded or failed is finished with, so it is left alone
+    — and a repository that has not deployed lately costs a single request."""
+    sync(client, repository)
+    read_once = _status_reads(provider_deployments)
+
+    sync(client, repository)
+
+    # The second pass reads the deployment list and stops there.
+    assert read_once == 1
+    assert _status_reads(provider_deployments) == read_once
+    rows = db.scalars(select(Deployment).where(Deployment.github_deployment_id == 88001)).all()
+    assert len(rows) == 1
+    assert rows[0].status == "success"

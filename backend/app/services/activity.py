@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +20,13 @@ IN_FLIGHT_DEPLOY_STATUSES = ("pending", "queued", "in_progress", "waiting", "cre
 # A finished item stays on the board briefly so the moment it lands is visible. Without
 # it, a run that passes vanishes from the page and the answer looks like it never ran.
 SETTLED_GRACE_MINUTES = 15
+
+# GitHub cancels a job at six hours, so a run still recorded as in flight beyond that is
+# not running — it is a row nothing has been able to correct, which is what happens while
+# a token is expired. Counting a timer up past that point states something false with
+# increasing confidence, so those rows are left off the board entirely. A sync repairs
+# them the moment access is restored, because the upsert carries the real conclusion.
+ABANDONED_AFTER_HOURS = 6
 
 
 @dataclass(frozen=True)
@@ -49,12 +56,22 @@ def board(db: Session, user_id: UUID) -> list[ActivityItem]:
     return items
 
 
+def _within(started_at: datetime | None) -> bool:
+    """Read in Python as well as in SQL, so the flag the page renders and the rows the
+    query returns cannot disagree about what counts as still running."""
+    if started_at is None:
+        return False
+    return datetime.now(UTC) - started_at < timedelta(hours=ABANDONED_AFTER_HOURS)
+
+
 def _started(item: "ActivityItem") -> float:
     return item.started_at.timestamp() if item.started_at else 0.0
 
 
 def _runs(db: Session, user_id: UUID) -> list[ActivityItem]:
-    live = WorkflowRun.status.not_in(SETTLED_RUN_STATUSES)
+    live = WorkflowRun.status.not_in(SETTLED_RUN_STATUSES) & (
+        WorkflowRun.started_at >= _abandoned_cutoff()
+    )
     rows = db.execute(
         select(WorkflowRun, Repository.full_name)
         .join(Repository, WorkflowRun.repository_id == Repository.id)
@@ -76,7 +93,7 @@ def _runs(db: Session, user_id: UUID) -> list[ActivityItem]:
             detail=run.branch,
             status=run.status,
             conclusion=run.conclusion,
-            live=run.status not in SETTLED_RUN_STATUSES,
+            live=run.status not in SETTLED_RUN_STATUSES and _within(run.started_at),
             started_at=run.started_at,
             completed_at=run.completed_at,
             url=run.html_url,
@@ -86,7 +103,9 @@ def _runs(db: Session, user_id: UUID) -> list[ActivityItem]:
 
 
 def _deployments(db: Session, user_id: UUID) -> list[ActivityItem]:
-    live = Deployment.status.in_(IN_FLIGHT_DEPLOY_STATUSES)
+    live = Deployment.status.in_(IN_FLIGHT_DEPLOY_STATUSES) & (
+        Deployment.started_at >= _abandoned_cutoff()
+    )
     rows = db.execute(
         select(Deployment, Repository.full_name)
         .join(Repository, Deployment.repository_id == Repository.id)
@@ -110,7 +129,7 @@ def _deployments(db: Session, user_id: UUID) -> list[ActivityItem]:
             conclusion=None
             if deployment.status in IN_FLIGHT_DEPLOY_STATUSES
             else deployment.status,
-            live=deployment.status in IN_FLIGHT_DEPLOY_STATUSES,
+            live=deployment.status in IN_FLIGHT_DEPLOY_STATUSES and _within(deployment.started_at),
             started_at=deployment.started_at,
             completed_at=deployment.completed_at,
             url=deployment.deployment_url,
@@ -121,3 +140,7 @@ def _deployments(db: Session, user_id: UUID) -> list[ActivityItem]:
 
 def _grace_cutoff() -> ColumnElement[Any]:
     return func.now() - func.make_interval(0, 0, 0, 0, 0, SETTLED_GRACE_MINUTES)
+
+
+def _abandoned_cutoff() -> ColumnElement[Any]:
+    return func.now() - func.make_interval(0, 0, 0, 0, ABANDONED_AFTER_HOURS)

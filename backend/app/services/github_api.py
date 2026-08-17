@@ -294,14 +294,25 @@ def _webhook_id(http: httpx.Client, full_name: str, callback_url: str) -> int | 
     return None
 
 
-def list_deployments(access_token: str, full_name: str, limit: int = 30) -> list[GitHubDeployment]:
+def list_deployments(
+    access_token: str,
+    full_name: str,
+    limit: int = 30,
+    settled_ids: frozenset[int] = frozenset(),
+) -> list[GitHubDeployment]:
     """GitHub records what Vercel, Netlify and every other provider integration
-    shipped, whether or not an Actions workflow was involved. Each deployment needs a
-    second call for its state, so the batch is capped rather than paged.
+    shipped, whether or not an Actions workflow was involved.
+
+    Each deployment's state is a second call, so a naive read of thirty deployments
+    costs thirty one requests. `settled_ids` names the ones already stored in a final
+    state — those never change again, so they are skipped and a repository that has not
+    deployed lately costs a single request instead of dozens.
     """
     deployments: list[GitHubDeployment] = []
     with client(access_token) as http:
         for payload in get(http, f"/repos/{full_name}/deployments", per_page=limit):
+            if payload["id"] in settled_ids:
+                continue
             statuses = get(
                 http, f"/repos/{full_name}/deployments/{payload['id']}/statuses", per_page=1
             )

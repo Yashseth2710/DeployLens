@@ -10,7 +10,13 @@ import { Sheet, SheetHead } from "@/components/sheet";
 import { SyncLine } from "@/components/sync-line";
 import { WindowControl, type WindowDays } from "@/components/window-control";
 import { formatHours, formatMonth } from "@/lib/outcome";
-import { useActivityBoard, useOverview, usePullRequests, useSession } from "@/lib/queries";
+import {
+  isAccessExpired,
+  useActivityBoard,
+  useOverview,
+  usePullRequests,
+  useSession,
+} from "@/lib/queries";
 
 const LIST_LENGTH = 100;
 
@@ -61,6 +67,7 @@ export function ReviewBoard() {
           <SyncLine
             lastSyncedAt={board.data?.last_synced_at ?? null}
             failed={board.data?.failed ?? 0}
+            expired={isAccessExpired(board.error)}
           />
           <WindowControl value={days} onChange={setDays} />
         </div>

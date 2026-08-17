@@ -138,3 +138,85 @@ def test_logout_clears_the_session(client: TestClient, github_grants_access):
 
     assert client.post("/api/auth/logout").status_code == 204
     assert client.get("/api/auth/me").status_code == 401
+
+
+def test_a_token_near_expiry_is_renewed_before_it_is_used(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The whole reason expiry is invisible. An eight hour token would otherwise strand
+    a signed-in user every working day, and the first they would know of it is the page
+    quietly going stale."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.security import decrypt_token, encrypt_token
+    from app.services import tokens
+    from app.services.github_oauth import TokenBundle
+
+    user = User(
+        github_id=771001,
+        username="octocat",
+        access_token_encrypted=encrypt_token("old-token"),
+        refresh_token_encrypted=encrypt_token("refresh-token"),
+        access_token_expires_at=datetime.now(UTC) + timedelta(minutes=1),
+    )
+    db.add(user)
+    db.flush()
+
+    monkeypatch.setattr(
+        tokens.github_oauth,
+        "refresh_access_token",
+        lambda refresh: TokenBundle(
+            access_token="new-token",
+            refresh_token="rotated-refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=8),
+        ),
+        raising=True,
+    )
+
+    assert tokens.access_token_for(db, user) == "new-token"
+    # GitHub rotates the refresh token on every use; keeping the old one would strand
+    # the next renewal.
+    assert decrypt_token(user.refresh_token_encrypted) == "rotated-refresh"
+
+
+def test_a_token_with_no_expiry_is_never_refreshed(db: Session, monkeypatch: pytest.MonkeyPatch):
+    """An OAuth app without token expiry issues no refresh token at all, and asking
+    GitHub to refresh nothing would fail every request."""
+    from app.core.security import encrypt_token
+    from app.services import tokens
+
+    user = User(
+        github_id=771002,
+        username="octocat",
+        access_token_encrypted=encrypt_token("forever-token"),
+    )
+    db.add(user)
+    db.flush()
+
+    monkeypatch.setattr(tokens.github_oauth, "refresh_access_token", _never, raising=True)
+
+    assert tokens.access_token_for(db, user) == "forever-token"
+
+
+def test_an_unrenewable_expired_token_asks_for_a_fresh_sign_in(db: Session):
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.security import encrypt_token
+    from app.services import tokens
+    from app.services.github_api import GitHubAuthExpiredError
+
+    user = User(
+        github_id=771003,
+        username="octocat",
+        access_token_encrypted=encrypt_token("dead-token"),
+        access_token_expires_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+    db.add(user)
+    db.flush()
+
+    with pytest.raises(GitHubAuthExpiredError):
+        tokens.access_token_for(db, user)
+
+
+def _never(refresh: str):
+    raise AssertionError("a token that never expires must not be refreshed")

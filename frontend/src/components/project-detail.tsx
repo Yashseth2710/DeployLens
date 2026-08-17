@@ -16,6 +16,7 @@ import { WindowControl, type WindowDays } from "@/components/window-control";
 import { ApiError } from "@/lib/api";
 import { formatDuration, formatHours, formatWhen, outcomeOf, runOutcome } from "@/lib/outcome";
 import {
+  isAccessExpired,
   useActivityBoard,
   useRecentDeployments,
   useRecentRuns,
@@ -127,6 +128,7 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
             <SyncLine
               lastSyncedAt={board.data?.last_synced_at ?? null}
               failed={board.data?.failed ?? 0}
+              expired={isAccessExpired(board.error)}
             />
             <ButtonLink
               href={repository.github_url}
