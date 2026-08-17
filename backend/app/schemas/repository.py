@@ -27,6 +27,9 @@ class AvailableRepository(BaseModel):
     private: bool
     pushed_at: datetime | None
     connected: bool
+    # The picker disconnects by our own row id, so returning it here saves the
+    # client a second request just to map GitHub's id onto ours.
+    connected_id: UUID | None
 
 
 class ConnectRepositoryRequest(BaseModel):

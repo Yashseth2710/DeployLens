@@ -37,11 +37,18 @@ def list_connected(user: CurrentUser, db: DbSession) -> list[Repository]:
 def list_available(user: CurrentUser, db: DbSession, token: GitHubToken) -> list[dict[str, object]]:
     """The picker needs every repository the token can see, with the ones already being
     tracked marked so they render as connected rather than as a duplicate offer."""
-    connected = set(
-        db.scalars(select(Repository.github_repo_id).where(Repository.user_id == user.id))
-    )
+    connected = {
+        github_repo_id: repository_id
+        for github_repo_id, repository_id in db.execute(
+            select(Repository.github_repo_id, Repository.id).where(Repository.user_id == user.id)
+        ).all()
+    }
     return [
-        {**asdict(repository), "connected": repository.github_repo_id in connected}
+        {
+            **asdict(repository),
+            "connected": repository.github_repo_id in connected,
+            "connected_id": connected.get(repository.github_repo_id),
+        }
         for repository in github_api.list_repositories(token)
     ]
 

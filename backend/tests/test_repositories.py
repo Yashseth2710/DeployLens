@@ -91,6 +91,8 @@ def test_available_marks_the_repositories_already_connected(
         "octocat/notes",
     ]
     assert [repository["connected"] for repository in available] == [True, False]
+    assert available[0]["connected_id"] is not None
+    assert available[1]["connected_id"] is None
     assert available[1]["private"] is True
     assert available[1]["pushed_at"] is None
 
