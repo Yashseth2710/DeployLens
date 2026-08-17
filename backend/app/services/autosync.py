@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.security import decrypt_token
 from app.models.repository import Repository
 from app.models.user import User
-from app.services import activity, workflow_sync
+from app.services import activity, history_sync, workflow_sync
 from app.services.github_api import GitHubError
 
 # How stale a repository is allowed to get before it is pulled again. A repository with
@@ -21,6 +21,10 @@ IDLE_MAX_AGE = timedelta(minutes=3)
 # rather than deciding what looks interesting.
 CRON_MAX_AGE = timedelta(minutes=30)
 
+# A pull request that was merged an hour ago is still merged. Reading them at the run
+# cadence would spend nearly every request confirming nothing changed.
+HISTORY_MAX_AGE = timedelta(minutes=20)
+
 
 @dataclass(frozen=True)
 class RefreshReport:
@@ -29,6 +33,7 @@ class RefreshReport:
     failed: int
     runs_added: int
     deployments_added: int
+    pull_requests: int
     last_synced_at: datetime | None
 
 
@@ -48,7 +53,7 @@ def refresh_user(db: Session, user: User, access_token: str, force: bool = False
 def refresh_everyone(db: Session) -> RefreshReport:
     """The scheduled sweep, for the hours when nobody has the page open. Runs per user so
     one revoked token cannot stop the rest from being collected."""
-    totals = RefreshReport(0, 0, 0, 0, 0, None)
+    totals = RefreshReport(0, 0, 0, 0, 0, 0, None)
     for user in db.scalars(select(User)):
         try:
             token = decrypt_token(user.access_token_encrypted)
@@ -70,7 +75,7 @@ def _refresh(
     force: bool,
     idle_max_age: timedelta,
 ) -> RefreshReport:
-    synced = skipped = failed = runs_added = deployments_added = 0
+    synced = skipped = failed = runs_added = deployments_added = pull_requests = 0
 
     for repository in repositories:
         if not force and not _is_stale(db, repository, idle_max_age):
@@ -89,6 +94,17 @@ def _refresh(
         repository.last_synced_at = datetime.now(UTC)
         synced += 1
 
+        # Pull requests and commit totals move on a different clock from workflow runs.
+        # Reading them at the run cadence would spend most of its requests confirming
+        # that a merged pull request is still merged.
+        if _history_is_stale(repository, force=force):
+            try:
+                history = history_sync.sync_history(db, repository, access_token)
+            except GitHubError:
+                continue
+            pull_requests += history.pull_requests_seen
+            repository.history_synced_at = datetime.now(UTC)
+
     db.commit()
     return RefreshReport(
         synced=synced,
@@ -96,6 +112,7 @@ def _refresh(
         failed=failed,
         runs_added=runs_added,
         deployments_added=deployments_added,
+        pull_requests=pull_requests,
         last_synced_at=_oldest(repositories),
     )
 
@@ -105,6 +122,12 @@ def _is_stale(db: Session, repository: Repository, idle_max_age: timedelta) -> b
         return True
     max_age = LIVE_MAX_AGE if activity.has_live_run(db, repository.id) else idle_max_age
     return datetime.now(UTC) - repository.last_synced_at >= max_age
+
+
+def _history_is_stale(repository: Repository, force: bool) -> bool:
+    if force or repository.history_synced_at is None:
+        return True
+    return datetime.now(UTC) - repository.history_synced_at >= HISTORY_MAX_AGE
 
 
 def _oldest(repositories: list[Repository]) -> datetime | None:
@@ -121,6 +144,7 @@ def _add(left: RefreshReport, right: RefreshReport) -> RefreshReport:
         failed=left.failed + right.failed,
         runs_added=left.runs_added + right.runs_added,
         deployments_added=left.deployments_added + right.deployments_added,
+        pull_requests=left.pull_requests + right.pull_requests,
         last_synced_at=min(
             [stamp for stamp in (left.last_synced_at, right.last_synced_at) if stamp],
             default=None,

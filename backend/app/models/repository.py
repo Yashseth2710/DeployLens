@@ -9,6 +9,7 @@ from app.database.base import Base, PrimaryKeyMixin, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.health import HealthCheck
+    from app.models.history import CommitWeek, PullRequest
     from app.models.user import User
     from app.models.workflow import Deployment, WorkflowRun
 
@@ -38,6 +39,9 @@ class Repository(Base, PrimaryKeyMixin, TimestampMixin):
     # When GitHub was last read for this repository. Null means never, which is what
     # makes a freshly connected repository the first thing the next sweep collects.
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Pull requests and commit totals move far more slowly than workflow runs, so they
+    # are collected on their own, much longer, cadence.
+    history_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped["User"] = relationship(back_populates="repositories")
     workflow_runs: Mapped[list["WorkflowRun"]] = relationship(
@@ -47,5 +51,11 @@ class Repository(Base, PrimaryKeyMixin, TimestampMixin):
         back_populates="repository", cascade="all, delete-orphan"
     )
     health_checks: Mapped[list["HealthCheck"]] = relationship(
+        back_populates="repository", cascade="all, delete-orphan"
+    )
+    pull_requests: Mapped[list["PullRequest"]] = relationship(
+        back_populates="repository", cascade="all, delete-orphan"
+    )
+    commit_weeks: Mapped[list["CommitWeek"]] = relationship(
         back_populates="repository", cascade="all, delete-orphan"
     )

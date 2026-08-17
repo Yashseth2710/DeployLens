@@ -7,6 +7,7 @@ from app.api import (
     cron,
     deployments,
     health_checks,
+    pull_requests,
     repositories,
     runs,
     webhooks,
@@ -21,6 +22,7 @@ app.include_router(activity.router)
 app.include_router(repositories.router)
 app.include_router(deployments.router)
 app.include_router(runs.router)
+app.include_router(pull_requests.router)
 app.include_router(health_checks.router)
 app.include_router(analytics.router)
 app.include_router(webhooks.router)
