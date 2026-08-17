@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { ExpandingList } from "@/components/expanding-list";
 import { Notice } from "@/components/notice";
 import { Sheet, SheetHead } from "@/components/sheet";
 import { cn } from "@/lib/cn";
@@ -16,6 +17,8 @@ import type { Finding, FindingKind, RepositoryFindings } from "@/lib/types";
  * The tone carries severity — broken now in hold, unreliable in wait — but never
  * alone: the label says which it is in words, so the sheet reads without hue.
  */
+const COLLAPSED_LENGTH = 5;
+
 const KIND: Record<FindingKind, { label: string; tone: string }> = {
   streak: { label: "Failing now", tone: "text-hold" },
   chronic: { label: "Unreliable", tone: "text-hold" },
@@ -65,11 +68,11 @@ export function Findings({
           detail="Runs are read for repeat failures, for a workflow that passed and failed on the same commit, and for builds slowing against their own earlier pace. None of those turned up in this window."
         />
       ) : (
-        <ul>
-          {findings.map((finding, index) => (
+        <ExpandingList items={findings} collapsedLength={COLLAPSED_LENGTH} noun="findings">
+          {(finding, index) => (
             <FindingRow key={`${finding.kind}-${finding.subject}-${index}`} finding={finding} />
-          ))}
-        </ul>
+          )}
+        </ExpandingList>
       )}
     </Sheet>
   );
@@ -79,13 +82,15 @@ function FindingRow({ finding }: { finding: Finding }) {
   const kind = KIND[finding.kind];
 
   return (
-    <li className="border-rule grid grid-cols-[7rem_minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 border-b px-5 py-3.5 last:border-b-0">
+    <li className="border-rule grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 border-b px-5 py-3.5 last:border-b-0 sm:grid-cols-[7rem_minmax(0,1fr)_auto]">
       <span className={cn("label !tracking-[0.14em]", kind.tone)}>{kind.label}</span>
-      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
+      {/* Its own row on a narrow screen: sharing one with the label would leave the
+          sentence a few words wide and break it over four lines. */}
+      <span className="col-span-2 flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1 sm:col-span-1">
         <span className="text-ink truncate font-mono text-[0.8125rem]">{finding.subject}</span>
         <span className="text-ink-quiet text-[0.8125rem]">{finding.detail}</span>
       </span>
-      <span className="label text-right !tracking-[0.08em]">
+      <span className="label col-start-2 row-start-1 text-right !tracking-[0.08em] sm:col-start-auto sm:row-start-auto">
         {formatWhen(finding.last_seen_at)}
         {finding.run_url ? (
           <>
@@ -138,7 +143,7 @@ export function AttentionBand({ repositories }: { repositories: RepositoryFindin
               {row.findings.map((finding, index) => (
                 <li
                   key={`${finding.kind}-${index}`}
-                  className="grid grid-cols-[7rem_minmax(0,1fr)] items-baseline gap-x-4 gap-y-0.5"
+                  className="grid items-baseline gap-x-4 gap-y-0.5 sm:grid-cols-[7rem_minmax(0,1fr)]"
                 >
                   <span className={cn("label !tracking-[0.14em]", KIND[finding.kind].tone)}>
                     {KIND[finding.kind].label}

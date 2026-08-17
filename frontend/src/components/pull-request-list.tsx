@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { ExpandingList } from "@/components/expanding-list";
 import { Notice } from "@/components/notice";
 import { Sheet, SheetHead } from "@/components/sheet";
 import { OutcomeMark, type Outcome } from "@/components/status";
@@ -12,6 +13,8 @@ import type { PullRequestRow } from "@/lib/types";
 type Filter = "all" | "open" | "merged" | "abandoned";
 
 const FILTERS = ["all", "open", "merged", "abandoned"] as const;
+
+const COLLAPSED_LENGTH = 5;
 
 /**
  * Pull requests read by what became of them. GitHub calls a merged one and an
@@ -77,8 +80,13 @@ export function PullRequestList({
           }
         />
       ) : (
-        <ul>
-          {shown.map((row) => (
+        <ExpandingList
+          key={filter}
+          items={shown}
+          collapsedLength={COLLAPSED_LENGTH}
+          noun="pull requests"
+        >
+          {(row) => (
             <li
               key={row.id}
               className="border-rule hover:bg-sheet-raised grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 border-b px-5 py-3 transition-colors last:border-b-0"
@@ -112,8 +120,8 @@ export function PullRequestList({
                 {when(row)}
               </span>
             </li>
-          ))}
-        </ul>
+          )}
+        </ExpandingList>
       )}
     </Sheet>
   );

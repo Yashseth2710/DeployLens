@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+import { ExpandingList } from "@/components/expanding-list";
 import { Notice } from "@/components/notice";
 import { Sheet, SheetHead } from "@/components/sheet";
 import { OutcomeMark, type Outcome } from "@/components/status";
 import { cn } from "@/lib/cn";
 import { formatWhen, outcomeOf } from "@/lib/outcome";
 import type { ActivityItem } from "@/lib/types";
+
+const COLLAPSED_LENGTH = 5;
 
 /**
  * What is happening right now. A run that is still going is the one thing on this
@@ -28,7 +31,9 @@ export function LiveActivity({
 }) {
   const live = items.filter((item) => item.live);
   const settled = items.filter((item) => !item.live);
-  const shown = compact ? [...live, ...settled].slice(0, 6) : items;
+  // Running first where space is tight, so the rows that cannot be read from
+  // history are the ones standing open.
+  const shown = compact ? [...live, ...settled] : items;
   const now = useTick(live.length > 0);
 
   return (
@@ -57,11 +62,9 @@ export function LiveActivity({
           detail="No workflow or deployment is in flight. This page watches on its own — when something starts, it appears here without a refresh."
         />
       ) : (
-        <ul aria-live="polite">
-          {shown.map((item) => (
-            <Row key={`${item.kind}-${item.id}`} item={item} now={now} />
-          ))}
-        </ul>
+        <ExpandingList items={shown} collapsedLength={COLLAPSED_LENGTH} noun="items" live>
+          {(item) => <Row key={`${item.kind}-${item.id}`} item={item} now={now} />}
+        </ExpandingList>
       )}
     </Sheet>
   );
