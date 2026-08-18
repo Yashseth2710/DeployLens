@@ -6,12 +6,19 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from app.api.deps import DbSession
 from app.core.config import get_settings
 from app.schemas.activity import SweepSummary
+from app.schemas.alert import AlertRunOut
 from app.schemas.health import ProbeRunSummary
-from app.services import autosync, probes
+from app.services import alerts, autosync, probes
+from app.services.alerts import AlertRun
 from app.services.autosync import RefreshReport
 from app.services.probes import ProbeRun
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
+
+# The window alerts are judged over. Wider than a glance at the dashboard, because a
+# workflow that broke on Friday is still broken on Monday and should not have its
+# issue closed by the weekend being quiet.
+ALERT_WINDOW_DAYS = 14
 
 
 def require_cron_secret(authorization: Annotated[str | None, Header()] = None) -> None:
@@ -43,3 +50,18 @@ def sync_everything(db: DbSession) -> RefreshReport:
     """Collect for the hours when nobody has the page open. Without this, a repository
     is only ever as current as the last time somebody looked at it."""
     return autosync.refresh_everyone(db)
+
+
+@router.post(
+    "/alerts",
+    response_model=AlertRunOut,
+    dependencies=[Depends(require_cron_secret)],
+)
+def raise_alerts(db: DbSession, days: int = ALERT_WINDOW_DAYS) -> AlertRun:
+    """File the problems worth telling somebody about, and close the ones that stopped.
+
+    Runs after collection rather than beside it: alerting on runs that have not been
+    read yet would raise a problem the dashboard cannot show and close it again on
+    the next pass.
+    """
+    return alerts.sweep(db, days, dry_run=False)

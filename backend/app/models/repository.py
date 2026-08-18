@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base, PrimaryKeyMixin, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.alert import Alert
     from app.models.health import HealthCheck
     from app.models.history import CommitWeek, PullRequest
     from app.models.user import User
@@ -61,5 +62,8 @@ class Repository(Base, PrimaryKeyMixin, TimestampMixin):
         back_populates="repository", cascade="all, delete-orphan"
     )
     commit_weeks: Mapped[list["CommitWeek"]] = relationship(
+        back_populates="repository", cascade="all, delete-orphan"
+    )
+    alerts: Mapped[list["Alert"]] = relationship(
         back_populates="repository", cascade="all, delete-orphan"
     )
