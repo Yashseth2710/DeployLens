@@ -7,6 +7,7 @@ import { ButtonLink } from "@/components/button";
 import { EndpointMonitor } from "@/components/endpoint-monitor";
 import { ExpandingList } from "@/components/expanding-list";
 import { Findings } from "@/components/findings";
+import { GroupSheet } from "@/components/group-sheet";
 import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
 import { PullRequestList } from "@/components/pull-request-list";
@@ -30,7 +31,7 @@ import {
   useSession,
   useTrends,
 } from "@/lib/queries";
-import type { DeploymentSummary, RunGroup } from "@/lib/types";
+import type { DeploymentSummary } from "@/lib/types";
 
 const RUN_FEED_LENGTH = 60;
 const CONTROL_BAR_LENGTH = 24;
@@ -260,20 +261,24 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
 
       <EndpointMonitor repositoryId={repositoryId} />
 
-      {/* Each sheet keeps its own height: one workflow beside sixteen branches
-          would otherwise stretch the shorter sheet into a panel of empty rule. */}
+      {/* Three workflows beside twenty-four branches is the ordinary shape here, so
+          the two sheets are never the same length. Each ends where its content ends —
+          stretching the shorter one only moves the empty space inside its own rule,
+          where it reads as a fault rather than as the page breathing. */}
       <div className="grid items-start gap-8 lg:grid-cols-2">
         <GroupSheet
           title="By workflow"
           groups={data.workflows}
           noun="workflows"
           empty="No workflows have run in this window."
+          collapsedLength={pairedLength(data.workflows.length, data.branches.length)}
         />
         <GroupSheet
           title="By branch"
           groups={data.branches}
           noun="branches"
           empty="No branch has run anything in this window."
+          collapsedLength={pairedLength(data.workflows.length, data.branches.length)}
         />
       </div>
 
@@ -296,53 +301,15 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
 }
 
 /**
- * Which workflow, or which branch, is costing the most. Sorted by volume from
- * the API, so the row that leads is the one that runs most — the failures
- * underneath it are then read against a sample worth trusting.
+ * How many rows the workflow and branch sheets both open at.
+ *
+ * They sit side by side and are never the same length, so the taller one decides
+ * how much bare ground appears beside the shorter. Opening both at the shorter
+ * list's length starts them level, and the longer one still says how much more it
+ * is holding on its own control.
  */
-function GroupSheet({
-  title,
-  groups,
-  empty,
-  noun,
-}: {
-  title: string;
-  groups: RunGroup[];
-  empty: string;
-  noun: string;
-}) {
-  return (
-    <Sheet>
-      <SheetHead title={title} meta={groups.length > 0 ? `${groups.length}` : undefined} />
-      {groups.length === 0 ? (
-        <Notice title={empty} />
-      ) : (
-        <ExpandingList items={groups} collapsedLength={COLLAPSED_LENGTH} noun={noun}>
-          {(group) => (
-            <li
-              key={group.name}
-              className="border-rule grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 border-b px-5 py-3 last:border-b-0"
-            >
-              <span className="text-ink truncate">{group.name}</span>
-              <span className="text-ink text-rank-c font-sans" data-numeric>
-                {group.success_rate === null ? "—" : `${group.success_rate}%`}
-              </span>
-              <span className="label !tracking-[0.08em]">
-                {group.runs} run{group.runs === 1 ? "" : "s"}
-                {group.failed > 0 ? ` · ${group.failed} failed` : ""}
-                {group.average_duration_seconds
-                  ? ` · ${formatDuration(group.average_duration_seconds)} avg`
-                  : ""}
-              </span>
-              <span className="label text-right !tracking-[0.08em]">
-                {formatWhen(group.last_run_at)}
-              </span>
-            </li>
-          )}
-        </ExpandingList>
-      )}
-    </Sheet>
-  );
+function pairedLength(left: number, right: number): number {
+  return Math.max(3, Math.min(COLLAPSED_LENGTH, left, right));
 }
 
 /**
@@ -370,8 +337,9 @@ function Deploys({
         </div>
       ) : deployments.length === 0 ? (
         <Notice
+          size="compact"
           title="No deploys recorded"
-          detail={`Deploys are read from GitHub — both from a workflow that ships ${defaultBranch} and from a hosting provider that records its own. Neither has reported one in this project yet.`}
+          detail={`Read from a workflow that ships ${defaultBranch} and from a hosting provider that records its own. Neither has reported one yet.`}
         />
       ) : (
         <ExpandingList items={deployments} collapsedLength={COLLAPSED_LENGTH} noun="deploys">

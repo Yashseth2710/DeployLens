@@ -16,7 +16,7 @@ export type Plot = {
   detail: string;
 };
 
-const PLOT_HEIGHT = 96;
+const PLOT_HEIGHT = 128;
 const MIN_COLUMN = 2;
 
 // A column stops widening past this. Ten days across a desktop measure would otherwise
@@ -27,6 +27,12 @@ const MAX_COLUMN_PX = 28;
 // A plot narrower than its own date label has the axis hanging off the end of it, so
 // a chart holding one or two days still reserves a readable measure.
 const MIN_PLOT_PX = 140;
+
+// Below this many days the plot is mostly empty ground, and a four-day series drawn at
+// the ten-day column width is three marks adrift in a wide sheet. Short series spend the
+// spare measure on wider columns instead, so the chart fills the space it was given.
+const SPARSE_DAYS = 8;
+const SPARSE_COLUMN_PX = 72;
 
 /**
  * A day chart drawn as ruled columns on a continuous date axis.
@@ -69,6 +75,7 @@ export function TrendChart({
   }
 
   const shown = reading ?? points[points.length - 1];
+  const columnPx = days.length < SPARSE_DAYS ? SPARSE_COLUMN_PX : MAX_COLUMN_PX;
 
   return (
     <div className="flex flex-col gap-3 px-5 py-5">
@@ -85,7 +92,7 @@ export function TrendChart({
 
       <div
         className="flex flex-col gap-2"
-        style={{ maxWidth: Math.max(MIN_PLOT_PX, days.length * (MAX_COLUMN_PX + 1)) }}
+        style={{ maxWidth: Math.max(MIN_PLOT_PX, days.length * (columnPx + 1)) }}
         onMouseLeave={() => setReading(null)}
       >
         <div
@@ -101,6 +108,7 @@ export function TrendChart({
               point={point}
               peak={peak}
               tone={tone}
+              widthPx={columnPx}
               active={reading?.day === day}
               onEnter={() => setReading(point)}
             />
@@ -134,6 +142,7 @@ function Column({
   point,
   peak,
   tone,
+  widthPx,
   active,
   onEnter,
 }: {
@@ -141,6 +150,7 @@ function Column({
   point: Plot | null;
   peak: number;
   tone: "accent" | "ok";
+  widthPx: number;
   active: boolean;
   onEnter: () => void;
 }) {
@@ -148,7 +158,7 @@ function Column({
     return (
       <span
         className="bg-rule/60 min-w-px flex-1 self-end"
-        style={{ height: 1, maxWidth: MAX_COLUMN_PX }}
+        style={{ height: 1, maxWidth: widthPx }}
         aria-hidden="true"
         title={`${dayLabel(day)} · nothing recorded`}
       />
@@ -161,7 +171,7 @@ function Column({
   return (
     <span
       className="group relative min-w-px flex-1 self-end"
-      style={{ height, maxWidth: MAX_COLUMN_PX }}
+      style={{ height, maxWidth: widthPx }}
       onMouseEnter={onEnter}
       title={`${dayLabel(day)} · ${point.detail}`}
     >

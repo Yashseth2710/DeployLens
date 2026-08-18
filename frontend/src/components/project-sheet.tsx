@@ -32,7 +32,7 @@ export function ProjectSheet({
   const latest = runs[0];
 
   return (
-    <Sheet as="article" className="flex flex-col">
+    <Sheet as="article" className="@container flex flex-col">
       <header className="border-rule flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b px-5 py-4">
         <div className="flex min-w-0 flex-col gap-1">
           <a
@@ -53,7 +53,10 @@ export function ProjectSheet({
       </header>
 
       <div className="flex flex-col gap-5 px-5 py-5">
-        <div className="flex items-end justify-between gap-6">
+        {/* The wedge is the score read as density, so it stays beside the number it
+            restates. Pushed to the far edge of a full-measure card it reads as a
+            stray scale belonging to nothing. */}
+        <div className="flex items-end justify-between gap-6 @2xl:max-w-md">
           <Reading
             label="Health score"
             value={metrics.health_score}
@@ -70,7 +73,10 @@ export function ProjectSheet({
           </div>
         ) : null}
 
-        <div className="border-rule grid grid-cols-2 gap-x-6 gap-y-5 border-t pt-5">
+        {/* This sheet is two columns wide in a pair and full measure when it is the
+            odd one out, so the readings answer to the card rather than the viewport:
+            four across once there is room, two when there is not. */}
+        <div className="border-rule grid grid-cols-2 gap-x-6 gap-y-5 border-t pt-5 @2xl:grid-cols-4">
           <Reading
             label="Runs passing"
             value={pipeline.success_rate}

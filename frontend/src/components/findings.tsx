@@ -64,8 +64,9 @@ export function Findings({
       />
       {findings.length === 0 ? (
         <Notice
+          size="compact"
           title="Nothing is failing in a pattern"
-          detail="Runs are read for repeat failures, for a workflow that passed and failed on the same commit, and for builds slowing against their own earlier pace. None of those turned up in this window."
+          detail="Repeat failures, one commit deciding both ways, and builds slowing against their own pace — none in this window."
         />
       ) : (
         <ExpandingList items={findings} collapsedLength={COLLAPSED_LENGTH} noun="findings">

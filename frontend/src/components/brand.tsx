@@ -35,18 +35,29 @@ export function Aperture({
   );
 }
 
+/**
+ * The wordmark, set solid as one word.
+ *
+ * "Lens" runs from the accent into the deeper blue it cools toward rather than
+ * sitting flat, which is what separates the two halves of the name at a glance
+ * without a second hue entering the palette. The gradient is painted through the
+ * text itself, so it stays one piece of live type: sharp at any size, correct in
+ * both themes, and selectable as "DeployLens".
+ */
 export function Wordmark({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "text-ink inline-flex items-baseline font-semibold tracking-[-0.035em] select-none",
+        "text-ink inline-flex items-baseline font-semibold tracking-[-0.038em] select-none",
         className,
       )}
     >
       <span aria-hidden="true" className="inline-flex items-center">
         Depl
-        <Aperture className="text-ink mx-[0.03em] translate-y-[0.02em]" />y
-        <span className="text-accent">Lens</span>
+        <Aperture className="text-ink mx-[0.02em] translate-y-[0.02em]" />y
+        <span className="from-accent-strong to-accent bg-gradient-to-r bg-clip-text text-transparent">
+          Lens
+        </span>
       </span>
       <span className="sr-only">DeployLens</span>
     </span>

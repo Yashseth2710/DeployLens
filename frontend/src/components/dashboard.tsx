@@ -14,6 +14,7 @@ import { Sheet, SheetHead } from "@/components/sheet";
 import { StepWedge } from "@/components/status";
 import { SyncLine } from "@/components/sync-line";
 import { WindowControl, type WindowDays } from "@/components/window-control";
+import { cn } from "@/lib/cn";
 import { formatDuration, formatWhen } from "@/lib/outcome";
 import {
   isAccessExpired,
@@ -220,7 +221,19 @@ export function Dashboard() {
 
       <ReliabilityTrends trends={trends.data} loading={trends.isPending} windowDays={days} />
 
-      <div className="grid [grid-template-columns:repeat(auto-fit,minmax(min(100%,26rem),1fr))] gap-8">
+      {/* An odd number of projects in a fixed two-column grid strands the last one on
+          a row of its own with a column of bare ground beside it, and three is the
+          ordinary count here. A row that cannot be filled evenly is given to one card
+          at full measure instead, which reads as a deliberate span rather than as a
+          gap where a fourth project should be. */}
+      <div
+        className={cn(
+          "grid gap-8 md:grid-cols-2",
+          data.repositories.length > 1 &&
+            data.repositories.length % 2 === 1 &&
+            "md:[&>*:last-child]:col-span-2",
+        )}
+      >
         {data.repositories.map((metrics) => (
           <ProjectSheet
             key={metrics.repository_id}
