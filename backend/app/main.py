@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.api import (
     activity,
+    alerts,
     analytics,
     auth,
     cron,
@@ -25,6 +26,7 @@ app.include_router(runs.router)
 app.include_router(pull_requests.router)
 app.include_router(health_checks.router)
 app.include_router(analytics.router)
+app.include_router(alerts.router)
 app.include_router(webhooks.router)
 app.include_router(cron.router)
 

@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type {
   ActivityBoard,
+  Alert,
+  AlertRun,
   Attention,
   AvailableRepository,
   ConnectedRepository,
@@ -42,6 +44,7 @@ export const keys = {
   insights: (repositoryId: string, days: number) =>
     ["analytics", "insights", repositoryId, days] as const,
   attention: (days: number) => ["analytics", "attention", days] as const,
+  alerts: () => ["alerts"] as const,
   healthChecks: (repositoryId?: string) => ["health-checks", repositoryId ?? "all"] as const,
   healthResults: (checkId: string) => ["health-checks", "results", checkId] as const,
 };
@@ -297,6 +300,34 @@ export function useAttention(days: number, enabled: boolean) {
     queryFn: () => api<Attention>(`/api/analytics/attention?days=${days}`),
     enabled,
     retry: false,
+  });
+}
+
+/**
+ * What has been raised, whether or not it is still standing. Resolved alerts stay
+ * in the list: "this broke and was fixed" is the record worth keeping, and a list
+ * that only ever showed current problems would be empty on a healthy account.
+ */
+export function useAlerts(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.alerts(),
+    queryFn: () => api<Alert[]>("/api/alerts?limit=20"),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * Work out what would be filed, and file nothing.
+ *
+ * Alerts write to the user's own repository, so the preview is the thing they read
+ * before ever letting that happen. It is a mutation rather than a query because it
+ * is a deliberate act, not something a page should do on its own when it loads.
+ */
+export function usePreviewAlerts() {
+  return useMutation({
+    mutationFn: (days: number) =>
+      api<AlertRun>(`/api/alerts/preview?days=${days}`, { method: "POST" }),
   });
 }
 

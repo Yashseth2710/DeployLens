@@ -262,6 +262,38 @@ export type Attention = {
   repositories: RepositoryFindings[];
 };
 
+export type Alert = {
+  id: string;
+  repository_id: string;
+  kind: string;
+  subject: string;
+  detail: string;
+  issue_number: number | null;
+  issue_url: string | null;
+  raised_at: string;
+  resolved_at: string | null;
+};
+
+export type AlertAction = {
+  repository: string;
+  kind: string;
+  subject: string;
+  action: string;
+  title: string;
+  body: string;
+  issue_number: number | null;
+  issue_url: string | null;
+};
+
+export type AlertRun = {
+  raised: number;
+  resolved: number;
+  unchanged: number;
+  failed: number;
+  dry_run: boolean;
+  actions: AlertAction[];
+};
+
 export type Overview = {
   window_days: number;
   connected_repositories: number;

@@ -125,6 +125,15 @@ def post(http: httpx.Client, path: str, body: dict[str, Any]) -> Any:
     return response.json()
 
 
+def patch(http: httpx.Client, path: str, body: dict[str, Any]) -> Any:
+    try:
+        response = http.patch(path, json=body)
+    except httpx.HTTPError as exc:
+        raise GitHubError(str(exc)) from exc
+    _raise_for_status(response)
+    return response.json()
+
+
 def delete(http: httpx.Client, path: str) -> None:
     try:
         response = http.delete(path)
@@ -253,6 +262,37 @@ def as_pull_request(payload: dict[str, Any]) -> GitHubPullRequest:
         merged_at=_timestamp(payload.get("merged_at")),
         closed_at=_timestamp(payload.get("closed_at")),
     )
+
+
+@dataclass(frozen=True)
+class GitHubIssue:
+    number: int
+    url: str
+
+
+def create_issue(
+    access_token: str, full_name: str, title: str, body: str, labels: list[str]
+) -> GitHubIssue:
+    """File an issue on a repository the signed-in user can write to.
+
+    The `repo` scope already granted at sign-in covers this, so raising an alert
+    costs the user no second authorisation.
+    """
+    with client(access_token) as http:
+        created = post(
+            http,
+            f"/repos/{full_name}/issues",
+            {"title": title, "body": body, "labels": labels},
+        )
+    return GitHubIssue(number=created["number"], url=created["html_url"])
+
+
+def close_issue(access_token: str, full_name: str, number: int, comment: str) -> None:
+    """Say why before closing. An issue that shuts with no comment reads as somebody
+    having dismissed it rather than as the problem having gone away."""
+    with client(access_token) as http:
+        post(http, f"/repos/{full_name}/issues/{number}/comments", {"body": comment})
+        patch(http, f"/repos/{full_name}/issues/{number}", {"state": "closed"})
 
 
 def create_webhook(access_token: str, full_name: str, callback_url: str, secret: str) -> None:
