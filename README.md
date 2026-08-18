@@ -1,5 +1,7 @@
 # DeployLens
 
+**[deploylens-sable.vercel.app](https://deploylens-sable.vercel.app)** · Next.js · FastAPI · PostgreSQL · GitHub Actions
+
 Deployment observability for developers running several projects at once. DeployLens connects to
 GitHub, tracks CI/CD activity across your repositories, probes your deployed applications, and
 turns both into reliability metrics on a single dashboard.
@@ -21,15 +23,18 @@ Scheduled health probes are driven externally and hit a guarded endpoint.
 
 ## Stack
 
-| Layer     | Choice                                        |
-| --------- | --------------------------------------------- |
-| Web       | Next.js 16, React 19, TypeScript, Tailwind 4  |
-| API       | FastAPI, Pydantic, SQLAlchemy 2               |
-| Database  | Neon (serverless PostgreSQL)                  |
-| Auth      | GitHub OAuth                                  |
-| Events    | GitHub webhooks                               |
-| CI        | GitHub Actions                                |
-| Tests     | pytest, Playwright, Vitest                    |
+| Layer     | Choice                                              |
+| --------- | --------------------------------------------------- |
+| Web       | Next.js 16, React 19, TypeScript, Tailwind 4        |
+| Data      | TanStack Query                                      |
+| API       | FastAPI, Pydantic 2, SQLAlchemy 2                   |
+| Database  | Neon (serverless PostgreSQL), Alembic migrations    |
+| Auth      | GitHub OAuth, signed sessions, encrypted tokens     |
+| Events    | GitHub webhooks with signature and replay checks    |
+| Schedule  | GitHub Actions cron — probes, collection, alerts    |
+| Hosting   | Vercel, one project, web and API as two services    |
+| CI        | GitHub Actions — ruff, mypy, eslint, tsc, build     |
+| Tests     | pytest (160), Vitest + Testing Library (50)         |
 
 ## Local development
 
