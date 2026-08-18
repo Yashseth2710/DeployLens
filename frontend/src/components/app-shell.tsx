@@ -19,7 +19,7 @@ export function AppShell({ children, nav }: { children: ReactNode; nav?: ReactNo
           <Link href="/" className="rounded-sheet text-rank-c">
             <Wordmark />
           </Link>
-          <nav className="order-3 w-full sm:order-none sm:w-auto sm:flex-1">
+          <nav className="order-3 w-full min-w-0 [scrollbar-width:none] overflow-x-auto sm:order-none sm:w-auto sm:flex-1 sm:overflow-visible">
             {nav ?? <MainNav />}
           </nav>
           <div className="ml-auto flex shrink-0 items-center gap-4 sm:ml-0">

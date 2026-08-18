@@ -31,7 +31,7 @@ import {
   useSession,
   useTrends,
 } from "@/lib/queries";
-import type { DeploymentSummary } from "@/lib/types";
+import type { DeploymentSummary, RunGroup } from "@/lib/types";
 
 const RUN_FEED_LENGTH = 60;
 const CONTROL_BAR_LENGTH = 24;
@@ -261,26 +261,7 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
 
       <EndpointMonitor repositoryId={repositoryId} />
 
-      {/* Three workflows beside twenty-four branches is the ordinary shape here, so
-          the two sheets are never the same length. Each ends where its content ends —
-          stretching the shorter one only moves the empty space inside its own rule,
-          where it reads as a fault rather than as the page breathing. */}
-      <div className="grid items-start gap-8 lg:grid-cols-2">
-        <GroupSheet
-          title="By workflow"
-          groups={data.workflows}
-          noun="workflows"
-          empty="No workflows have run in this window."
-          collapsedLength={pairedLength(data.workflows.length, data.branches.length)}
-        />
-        <GroupSheet
-          title="By branch"
-          groups={data.branches}
-          noun="branches"
-          empty="No branch has run anything in this window."
-          collapsedLength={pairedLength(data.workflows.length, data.branches.length)}
-        />
-      </div>
+      <GroupPair workflows={data.workflows} branches={data.branches} />
 
       <Deploys
         deployments={deploys.data ?? []}
@@ -301,15 +282,40 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
 }
 
 /**
- * How many rows the workflow and branch sheets both open at.
+ * The workflow and branch sheets, which share one row and are never the same
+ * length — three workflows against twenty-four branches is the ordinary shape.
  *
- * They sit side by side and are never the same length, so the taller one decides
- * how much bare ground appears beside the shorter. Opening both at the shorter
- * list's length starts them level, and the longer one still says how much more it
- * is holding on its own control.
+ * Collapsed, both open at the shorter list's length so the pair starts level.
+ * Opened, the sheet doing the talking takes the whole row: twenty branches in a
+ * half-width column leaves its neighbour standing beside a thousand points of
+ * bare page, which is the one thing this arrangement must never do.
  */
-function pairedLength(left: number, right: number): number {
-  return Math.max(3, Math.min(COLLAPSED_LENGTH, left, right));
+function GroupPair({ workflows, branches }: { workflows: RunGroup[]; branches: RunGroup[] }) {
+  const [opened, setOpened] = useState<"workflows" | "branches" | null>(null);
+  const paired = Math.max(3, Math.min(COLLAPSED_LENGTH, workflows.length, branches.length));
+
+  return (
+    <div className="grid items-start gap-8 lg:grid-cols-2">
+      <GroupSheet
+        title="By workflow"
+        groups={workflows}
+        noun="workflows"
+        empty="No workflows have run in this window."
+        collapsedLength={paired}
+        onToggle={(expanded) => setOpened(expanded ? "workflows" : null)}
+        className={opened === "workflows" ? "lg:col-span-2" : undefined}
+      />
+      <GroupSheet
+        title="By branch"
+        groups={branches}
+        noun="branches"
+        empty="No branch has run anything in this window."
+        collapsedLength={paired}
+        onToggle={(expanded) => setOpened(expanded ? "branches" : null)}
+        className={opened === "branches" ? "lg:col-span-2" : undefined}
+      />
+    </div>
+  );
 }
 
 /**

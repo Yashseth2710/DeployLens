@@ -21,6 +21,7 @@ export function ExpandingList<T>({
   noun,
   live = false,
   className,
+  onToggle,
   children,
 }: {
   items: T[];
@@ -31,6 +32,8 @@ export function ExpandingList<T>({
   live?: boolean;
   /** For a list that has to fill a height its neighbour set. */
   className?: string;
+  /** Told when the list opens or closes, for a layout that answers to it. */
+  onToggle?: (expanded: boolean) => void;
   /** Renders the whole row, `<li>` included, so each list keeps its own layout. */
   children: (item: T, index: number) => ReactNode;
 }) {
@@ -50,7 +53,10 @@ export function ExpandingList<T>({
       {hidden > 0 ? (
         <button
           type="button"
-          onClick={() => setOpen((wasOpen) => !wasOpen)}
+          onClick={() => {
+            setOpen(!expanded);
+            onToggle?.(!expanded);
+          }}
           aria-expanded={expanded}
           className="label border-rule text-ink-quiet hover:bg-sheet-raised hover:!text-ink flex w-full items-center justify-center gap-2 border-t px-5 py-3 !tracking-[0.12em] transition-colors"
         >

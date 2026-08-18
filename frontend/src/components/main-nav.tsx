@@ -26,12 +26,15 @@ export function MainNav() {
     return null;
   }
 
+  // Four labels do not fit a phone in one row, and letting them wrap breaks "Pull
+  // requests" across two lines mid-phrase. The row keeps its labels whole and the
+  // header scrolls it, which keeps every destination one gesture away.
   return (
-    <ul className="flex items-center gap-5">
+    <ul className="flex w-max items-center gap-5">
       {LINKS.map((link) => {
         const current = pathname.startsWith(link.href);
         return (
-          <li key={link.href}>
+          <li key={link.href} className="shrink-0">
             <Link
               href={link.href}
               aria-current={current ? "page" : undefined}
