@@ -3,6 +3,7 @@
 import { ExpandingList } from "@/components/expanding-list";
 import { Notice } from "@/components/notice";
 import { Sheet, SheetHead } from "@/components/sheet";
+import { cn } from "@/lib/cn";
 import { formatDuration, formatWhen } from "@/lib/outcome";
 import type { RunGroup } from "@/lib/types";
 
@@ -24,6 +25,8 @@ export function GroupSheet({
   empty,
   noun,
   collapsedLength = COLLAPSED_LENGTH,
+  onToggle,
+  className,
 }: {
   title: string;
   groups: RunGroup[];
@@ -31,6 +34,9 @@ export function GroupSheet({
   noun: string;
   /** Set by a pair of sheets so both open at the same height. */
   collapsedLength?: number;
+  /** Told when this sheet opens, so the pair can give it the whole row. */
+  onToggle?: (expanded: boolean) => void;
+  className?: string;
 }) {
   // Share is measured against the busiest row rather than the total: with
   // twenty-four branches every share of the total rounds to a hairline, and the
@@ -38,12 +44,17 @@ export function GroupSheet({
   const busiest = Math.max(1, ...groups.map((group) => group.runs));
 
   return (
-    <Sheet className="flex flex-col">
+    <Sheet className={cn("flex flex-col", className)}>
       <SheetHead title={title} meta={groups.length > 0 ? `${groups.length}` : undefined} />
       {groups.length === 0 ? (
         <Notice size="compact" title={empty} />
       ) : (
-        <ExpandingList items={groups} collapsedLength={collapsedLength} noun={noun}>
+        <ExpandingList
+          items={groups}
+          collapsedLength={collapsedLength}
+          noun={noun}
+          onToggle={onToggle}
+        >
           {(group) => (
             <li
               key={group.name}
@@ -53,13 +64,7 @@ export function GroupSheet({
               <span className="text-ink text-rank-c font-sans" data-numeric>
                 {group.success_rate === null ? "—" : `${group.success_rate}%`}
               </span>
-              <span className="label !tracking-[0.08em]">
-                {group.runs} run{group.runs === 1 ? "" : "s"}
-                {group.failed > 0 ? ` · ${group.failed} failed` : ""}
-                {group.average_duration_seconds
-                  ? ` · ${formatDuration(group.average_duration_seconds)} avg`
-                  : ""}
-              </span>
+              <span className="label !tracking-[0.08em]">{sampleOf(group)}</span>
               <span className="label text-right !tracking-[0.08em]">
                 {formatWhen(group.last_run_at)}
               </span>
@@ -70,6 +75,17 @@ export function GroupSheet({
       )}
     </Sheet>
   );
+}
+
+/** What the rate was measured over: runs, the failures among them, and the pace. */
+function sampleOf(group: RunGroup): string {
+  return [
+    `${group.runs} run${group.runs === 1 ? "" : "s"}`,
+    group.failed > 0 ? `${group.failed} failed` : null,
+    group.average_duration_seconds ? `${formatDuration(group.average_duration_seconds)} avg` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /**

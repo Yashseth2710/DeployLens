@@ -287,7 +287,7 @@ def pipeline_metrics(db: Session, repository_ids: list[UUID], days: int) -> Pipe
 
 
 def per_repository(db: Session, user_id: UUID, days: int) -> list[RepositoryMetrics]:
-    """Three grouped queries rather than two per repository. The dashboard asks for
+    """Three grouped queries rather than three per repository. The dashboard asks for
     this on every load, and each round trip is one more thing Neon has to wake for."""
     repositories = db.execute(
         select(Repository.id, Repository.full_name)
@@ -300,9 +300,7 @@ def per_repository(db: Session, user_id: UUID, days: int) -> list[RepositoryMetr
     ids = [repository_id for repository_id, _ in repositories]
     delivery_by_repository = _delivery_by_repository(db, ids, days)
     uptime_by_repository = _uptime_by_repository(db, ids, days)
-    pipeline_by_repository = {
-        repository_id: pipeline_metrics(db, [repository_id], days) for repository_id in ids
-    }
+    pipeline_by_repository = _pipeline_by_repository(db, ids, days)
 
     metrics = []
     for repository_id, full_name in repositories:
@@ -318,6 +316,46 @@ def per_repository(db: Session, user_id: UUID, days: int) -> list[RepositoryMetr
                 uptime=uptime,
                 health_score=health_score(delivery, uptime, pipeline),
             )
+        )
+    return metrics
+
+
+def _pipeline_by_repository(
+    db: Session, repository_ids: list[UUID], days: int
+) -> dict[UUID, PipelineMetrics]:
+    """The same aggregate as pipeline_metrics, grouped instead of asked once per
+    repository. Read one at a time this was a round trip to Neon per project on
+    every dashboard load, which is the slowest thing a free-tier database does."""
+    rows = db.execute(
+        select(
+            WorkflowRun.repository_id,
+            func.count(WorkflowRun.id),
+            func.count(case((WorkflowRun.conclusion.in_(SUCCEEDED), 1))),
+            func.count(case((WorkflowRun.conclusion.in_(FAILED), 1))),
+            func.avg(WorkflowRun.duration_seconds),
+            func.count(func.distinct(WorkflowRun.workflow_name)),
+            func.count(func.distinct(WorkflowRun.branch)),
+            func.max(WorkflowRun.started_at),
+        )
+        .where(
+            WorkflowRun.repository_id.in_(repository_ids),
+            WorkflowRun.started_at >= _cutoff(days),
+        )
+        .group_by(WorkflowRun.repository_id)
+    ).all()
+
+    metrics: dict[UUID, PipelineMetrics] = {}
+    for repository_id, runs, succeeded, failed, average, workflows, branches, last_run in rows:
+        decided = succeeded + failed
+        metrics[repository_id] = PipelineMetrics(
+            runs=runs,
+            succeeded=succeeded,
+            failed=failed,
+            success_rate=round(succeeded / decided * 100, 1) if decided else None,
+            average_duration_seconds=round(average) if average else None,
+            workflows=workflows,
+            branches=branches,
+            last_run_at=last_run,
         )
     return metrics
 
@@ -411,15 +449,17 @@ def review_metrics(db: Session, repository_ids: list[UUID], days: int) -> Review
         ).where(scope, PullRequest.merged_at >= cutoff, PullRequest.opened_at.is_not(None))
     )
 
-    commits, first_week = db.execute(
-        select(func.sum(CommitWeek.commits), func.min(CommitWeek.week_start)).where(
-            CommitWeek.repository_id.in_(repository_ids),
-            CommitWeek.week_start >= _date_cutoff(days),
-        )
+    # The window totals and how far the history reaches both come from the same table,
+    # so they are read together: on a database a continent away a second round trip
+    # costs more than the aggregate it carries.
+    window = CommitWeek.week_start >= _date_cutoff(days)
+    commits, first_week, earliest = db.execute(
+        select(
+            func.sum(case((window, CommitWeek.commits))),
+            func.min(case((window, CommitWeek.week_start))),
+            func.min(CommitWeek.week_start),
+        ).where(CommitWeek.repository_id.in_(repository_ids))
     ).one()
-    earliest = db.scalar(
-        select(func.min(CommitWeek.week_start)).where(CommitWeek.repository_id.in_(repository_ids))
-    )
 
     decided = merged + closed_unmerged
     total_commits = int(commits or 0)
