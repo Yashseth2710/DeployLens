@@ -20,6 +20,7 @@ export function ExpandingList<T>({
   collapsedLength,
   noun,
   live = false,
+  className,
   children,
 }: {
   items: T[];
@@ -28,6 +29,8 @@ export function ExpandingList<T>({
   noun: string;
   /** Announces rows as they change, for a list that updates without a reload. */
   live?: boolean;
+  /** For a list that has to fill a height its neighbour set. */
+  className?: string;
   /** Renders the whole row, `<li>` included, so each list keeps its own layout. */
   children: (item: T, index: number) => ReactNode;
 }) {
@@ -41,7 +44,9 @@ export function ExpandingList<T>({
 
   return (
     <>
-      <ul aria-live={live ? "polite" : undefined}>{shown.map(children)}</ul>
+      <ul className={className} aria-live={live ? "polite" : undefined}>
+        {shown.map(children)}
+      </ul>
       {hidden > 0 ? (
         <button
           type="button"
