@@ -201,6 +201,11 @@ function Column({
  * render as four adjacent columns and read as four consecutive days.
  */
 function spanDays(points: Plot[], windowDays: number): { day: string; point: Plot | null }[] {
+  // The caller renders an empty state instead of a plot, but it is a hook that runs
+  // this first and hooks cannot be skipped — so an empty series has to be answered
+  // here rather than guarded against outside.
+  if (points.length === 0) return [];
+
   const byDay = new Map(points.map((point) => [point.day, point]));
   const last = points[points.length - 1];
   const end = new Date(`${last.day}T00:00:00Z`);
