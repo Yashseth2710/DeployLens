@@ -49,3 +49,22 @@ jobs:
             --header "Authorization: Bearer $CRON_SECRET")
 
           echo "$response"
+
+      # After collection, not beside it: alerting on runs that have not been read yet
+      # would raise a problem the dashboard cannot show, and close it again next pass.
+      - name: Raise and resolve alerts
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_URL and CRON_SECRET are not configured yet; nothing to alert on."
+            exit 0
+          fi
+
+          response=$(curl --silent --show-error --fail-with-body \
+            --max-time 120 \
+            --request POST "$APP_URL/api/cron/alerts" \
+            --header "Authorization: Bearer $CRON_SECRET")
+
+          echo "$response"
