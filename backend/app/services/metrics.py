@@ -125,6 +125,19 @@ class DeploymentPoint:
 
 
 @dataclass(frozen=True)
+class RunPoint:
+    """A day of pipeline activity. Runs are the densest signal this product holds —
+    a side project deploys weekly but runs CI many times a day — so this is the series
+    that actually has a shape to read."""
+
+    day: date
+    runs: int
+    succeeded: int
+    failed: int
+    average_duration_seconds: int | None
+
+
+@dataclass(frozen=True)
 class UptimePoint:
     day: date
     probes: int
@@ -502,6 +515,42 @@ def deployment_series(db: Session, repository_ids: list[UUID], days: int) -> lis
         DeploymentPoint(
             day=point.date(),
             deployments=total,
+            succeeded=succeeded,
+            failed=failed,
+            average_duration_seconds=round(average) if average else None,
+        )
+        for point, total, succeeded, failed, average in rows
+    ]
+
+
+def run_series(db: Session, repository_ids: list[UUID], days: int) -> list[RunPoint]:
+    """One row per day that ran anything. Days with no runs are left out rather than
+    returned as zero, the same as every other series here: a day nobody pushed is not a
+    day the pipeline scored nothing, and the chart is what decides how to draw the gap."""
+    if not repository_ids:
+        return []
+
+    day = func.date_trunc("day", WorkflowRun.started_at)
+    rows = db.execute(
+        select(
+            day.label("day"),
+            func.count(WorkflowRun.id),
+            func.count(case((WorkflowRun.conclusion.in_(SUCCEEDED), 1))),
+            func.count(case((WorkflowRun.conclusion.in_(FAILED), 1))),
+            func.avg(WorkflowRun.duration_seconds),
+        )
+        .where(
+            WorkflowRun.repository_id.in_(repository_ids),
+            WorkflowRun.started_at >= _cutoff(days),
+        )
+        .group_by(day)
+        .order_by(day)
+    ).all()
+
+    return [
+        RunPoint(
+            day=point.date(),
+            runs=total,
             succeeded=succeeded,
             failed=failed,
             average_duration_seconds=round(average) if average else None,

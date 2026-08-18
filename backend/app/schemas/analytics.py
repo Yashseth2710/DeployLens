@@ -64,6 +64,14 @@ class DeploymentPointOut(BaseModel):
     average_duration_seconds: int | None
 
 
+class RunPointOut(BaseModel):
+    day: date
+    runs: int
+    succeeded: int
+    failed: int
+    average_duration_seconds: int | None
+
+
 class UptimePointOut(BaseModel):
     day: date
     probes: int
@@ -107,6 +115,7 @@ class RepositoryDetailOut(BaseModel):
 
 class TrendOut(BaseModel):
     window_days: int
+    runs: list[RunPointOut]
     deployments: list[DeploymentPointOut]
     uptime: list[UptimePointOut]
 

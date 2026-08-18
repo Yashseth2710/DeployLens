@@ -204,6 +204,36 @@ export type RepositoryDetail = {
   first_activity_at: string | null;
 };
 
+export type RunPoint = {
+  day: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  average_duration_seconds: number | null;
+};
+
+export type DeploymentPoint = {
+  day: string;
+  deployments: number;
+  succeeded: number;
+  failed: number;
+  average_duration_seconds: number | null;
+};
+
+export type UptimePoint = {
+  day: string;
+  probes: number;
+  up: number;
+  uptime_percent: number;
+};
+
+export type Trends = {
+  window_days: number;
+  runs: RunPoint[];
+  deployments: DeploymentPoint[];
+  uptime: UptimePoint[];
+};
+
 export type FindingKind = "streak" | "flaky" | "chronic" | "branch" | "slowdown";
 
 export type Finding = {

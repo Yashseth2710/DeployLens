@@ -11,6 +11,7 @@ import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
 import { PullRequestList } from "@/components/pull-request-list";
 import { Reading } from "@/components/reading";
+import { ReliabilityTrends } from "@/components/reliability-trends";
 import { RunFeed } from "@/components/run-feed";
 import { Sheet, SheetHead } from "@/components/sheet";
 import { SyncLine } from "@/components/sync-line";
@@ -27,6 +28,7 @@ import {
   usePullRequests,
   useRepositoryDetail,
   useSession,
+  useTrends,
 } from "@/lib/queries";
 import type { DeploymentSummary, RunGroup } from "@/lib/types";
 
@@ -58,6 +60,7 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
   const deploys = useRecentDeployments(DEPLOY_LIST_LENGTH, signedIn, repositoryId);
   const pullRequests = usePullRequests(PULL_REQUEST_LENGTH, signedIn, repositoryId);
   const insights = useInsights(repositoryId, days, signedIn);
+  const trends = useTrends(days, signedIn, repositoryId);
   const activity = (board.data?.items ?? []).filter((item) => item.repository_id === repositoryId);
 
   if (session.isPending || (signedIn && detail.isPending)) {
@@ -246,6 +249,8 @@ export function ProjectDetail({ repositoryId }: { repositoryId: string }) {
           </div>
         ) : null}
       </Sheet>
+
+      <ReliabilityTrends trends={trends.data} loading={trends.isPending} windowDays={days} />
 
       <Findings
         findings={insights.data?.findings ?? []}
