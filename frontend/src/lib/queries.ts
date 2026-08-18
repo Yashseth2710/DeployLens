@@ -17,6 +17,7 @@ import type {
   PullRequestRow,
   RepositoryDetail,
   SyncSummary,
+  Trends,
   UserProfile,
   WorkflowRunRow,
 } from "@/lib/types";
@@ -36,6 +37,8 @@ export const keys = {
   runs: (limit: number, repositoryId?: string) => ["runs", limit, repositoryId ?? "all"] as const,
   pullRequests: (limit: number, repositoryId?: string) =>
     ["pull-requests", limit, repositoryId ?? "all"] as const,
+  trends: (days: number, repositoryId?: string) =>
+    ["analytics", "trends", days, repositoryId ?? "all"] as const,
   insights: (repositoryId: string, days: number) =>
     ["analytics", "insights", repositoryId, days] as const,
   attention: (days: number) => ["analytics", "attention", days] as const,
@@ -239,6 +242,27 @@ export function usePullRequests(limit: number, enabled: boolean, repositoryId?: 
   return useQuery({
     queryKey: keys.pullRequests(limit, repositoryId),
     queryFn: () => api<PullRequestRow[]>(`/api/pull-requests?${scoped(limit, repositoryId)}`),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * The daily series behind the readings. Runs carry the shape here: a side project
+ * deploys weekly but runs CI many times a day, so the deploy series is a handful of
+ * marks while the run series is a real curve.
+ *
+ * Days with nothing recorded are absent from the response rather than zero, which is
+ * what lets the chart draw a gap instead of claiming a measurement of none.
+ */
+export function useTrends(days: number, enabled: boolean, repositoryId?: string) {
+  return useQuery({
+    queryKey: keys.trends(days, repositoryId),
+    queryFn: () => {
+      const query = new URLSearchParams({ days: String(days) });
+      if (repositoryId) query.set("repository_id", repositoryId);
+      return api<Trends>(`/api/analytics/trends?${query.toString()}`);
+    },
     enabled,
     retry: false,
   });

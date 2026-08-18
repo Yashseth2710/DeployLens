@@ -8,6 +8,7 @@ import { LiveActivity } from "@/components/live-activity";
 import { Notice } from "@/components/notice";
 import { ProjectSheet } from "@/components/project-sheet";
 import { Reading } from "@/components/reading";
+import { ReliabilityTrends } from "@/components/reliability-trends";
 import { RunFeed } from "@/components/run-feed";
 import { Sheet, SheetHead } from "@/components/sheet";
 import { StepWedge } from "@/components/status";
@@ -22,6 +23,7 @@ import {
   useRecentDeployments,
   useRecentRuns,
   useSession,
+  useTrends,
 } from "@/lib/queries";
 
 const CONTROL_BAR_LENGTH = 12;
@@ -37,6 +39,7 @@ export function Dashboard() {
   const deployments = useRecentDeployments(100, signedIn);
   const runs = useRecentRuns(RUN_FEED_LENGTH, signedIn);
   const attention = useAttention(days, signedIn);
+  const trends = useTrends(days, signedIn);
 
   const deploysByRepository = useMemo(
     () => groupByRepository(deployments.data ?? []),
@@ -214,6 +217,8 @@ export function Dashboard() {
           />
         </div>
       </Sheet>
+
+      <ReliabilityTrends trends={trends.data} loading={trends.isPending} windowDays={days} />
 
       <div className="grid [grid-template-columns:repeat(auto-fit,minmax(min(100%,26rem),1fr))] gap-8">
         {data.repositories.map((metrics) => (

@@ -204,6 +204,66 @@ def test_trends_group_by_day(
     assert body["uptime"][0]["uptime_percent"] == 50.0
 
 
+def test_trends_carry_a_daily_run_series(
+    client: TestClient, db: Session, signed_in: User, repository: Repository
+):
+    """Runs are the densest thing this product holds. A side project deploys weekly and
+    runs CI many times a day, so this is the series with a shape worth drawing."""
+    add_run(db, repository, github_run_id=9001, days_ago=1, duration=60)
+    add_run(db, repository, github_run_id=9002, days_ago=1, conclusion="failure", duration=120)
+    add_run(db, repository, github_run_id=9003, days_ago=0, duration=90)
+
+    body = client.get("/api/analytics/trends", params={"days": 7}).json()
+
+    assert len(body["runs"]) == 2
+    yesterday = body["runs"][0]
+    assert yesterday["runs"] == 2
+    assert yesterday["succeeded"] == 1
+    assert yesterday["failed"] == 1
+    assert yesterday["average_duration_seconds"] == 90
+    assert body["runs"][1]["runs"] == 1
+
+
+def test_a_day_with_no_runs_is_absent_rather_than_zero(
+    client: TestClient, db: Session, signed_in: User, repository: Repository
+):
+    """The chart draws the gap. Returning a zero would claim the pipeline scored nothing
+    that day, when in fact nobody pushed."""
+    add_run(db, repository, github_run_id=9101, days_ago=3)
+    add_run(db, repository, github_run_id=9102, days_ago=0)
+
+    body = client.get("/api/analytics/trends", params={"days": 7}).json()
+
+    assert len(body["runs"]) == 2
+    days = [point["day"] for point in body["runs"]]
+    assert days == sorted(days)
+
+
+def test_the_run_series_stays_inside_the_window(
+    client: TestClient, db: Session, signed_in: User, repository: Repository
+):
+    add_run(db, repository, github_run_id=9201, days_ago=40)
+    add_run(db, repository, github_run_id=9202, days_ago=1)
+
+    assert len(client.get("/api/analytics/trends", params={"days": 7}).json()["runs"]) == 1
+    assert len(client.get("/api/analytics/trends", params={"days": 90}).json()["runs"]) == 2
+
+
+def test_the_run_series_is_scoped_to_the_signed_in_user(
+    client: TestClient, db: Session, signed_in: User, repository: Repository
+):
+    stranger = User(github_id=88321, username="stranger", access_token_encrypted="x")
+    db.add(stranger)
+    db.flush()
+    theirs = add_repository(db, stranger, "stranger/theirs", 900555)
+    add_run(db, theirs, github_run_id=9301, days_ago=1)
+    add_run(db, repository, github_run_id=9302, days_ago=1)
+
+    body = client.get("/api/analytics/trends", params={"days": 7}).json()
+
+    assert sum(point["runs"] for point in body["runs"]) == 1
+
+
 def test_trends_can_be_narrowed_to_one_repository(
     client: TestClient, db: Session, signed_in: User, repository: Repository
 ):

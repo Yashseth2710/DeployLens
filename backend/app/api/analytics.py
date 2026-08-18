@@ -95,6 +95,7 @@ def trends(
 
     return {
         "window_days": days,
+        "runs": metrics.run_series(db, repository_ids, days),
         "deployments": metrics.deployment_series(db, repository_ids, days),
         "uptime": metrics.uptime_series(db, repository_ids, days),
     }
